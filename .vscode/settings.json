@@ -1,0 +1,17 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "d:\\espidf\\v5.5\\esp-idf",
+  "idf.toolsPathWin": "d:\\espidf\\tools_55",
+  "idf.pythonInstallPath": "d:\\espidf\\tools_55\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c5"
+  },
+  "clangd.path": "d:\\espidf\\tools_55\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=d:\\espidf\\tools_55\\tools\\riscv32-esp-elf\\esp-14.2.0_20241119\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe",
+    "--compile-commands-dir=d:\\soft\\vscode\\git\\ESP_WIFI_C5\\station\\build"
+  ],
+  "idf.portWin": "COM4",
+  "idf.flashType": "UART"
+}
