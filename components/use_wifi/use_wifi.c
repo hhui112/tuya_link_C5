@@ -28,6 +28,7 @@
 #define TUYA_MQTT_HOST          "m1.tuyacn.com"
 #define TUYA_MQTT_PORT          8883
 #define TUYA_DEVICE_ID          "tuyalink_2631a16994c01c1f45qfha"
+#define MQTT_DEVICE_ID          "2631a16994c01c1f45qfha"
 #define TUYA_DEVICE_SECRET      "cba720b9af92e95c185bf9d633714b3e6ad95cf546b8f00124e76303861600ee"
 #define TUYA_PRODUCT_ID         "owes0z4baov2vqgx"
 
@@ -162,11 +163,20 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         xEventGroupSetBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
         
         // 订阅涂鸦设备命令主题
-        char cmd_topic[128];
-        snprintf(cmd_topic, sizeof(cmd_topic), "tylink/%s/thing/property/set", TUYA_DEVICE_ID);
-        int msg_id = esp_mqtt_client_subscribe(client, cmd_topic, 0);
-        ESP_LOGI(MQTT_TAG, "订阅命令主题成功, msg_id=%d", msg_id);
+        char mc_cli_data_publish_topic[128] = {0};      // 发布主题用于发送控制消息
+        char mc_cli_data_subscribe_topic[128] = {0};    // 订阅主题用于接收平台下发的消息
+
+        snprintf(mc_cli_data_subscribe_topic, sizeof(mc_cli_data_subscribe_topic), "tylink/%s/thing/property/set", MQTT_DEVICE_ID);
+        snprintf(mc_cli_data_publish_topic, sizeof(mc_cli_data_publish_topic), "tylink/%s/thing/property/report", MQTT_DEVICE_ID);
+
+        printf("%s\n", mc_cli_data_subscribe_topic);
+        printf("%s\n", mc_cli_data_publish_topic);
+
         
+        int msg_id = esp_mqtt_client_subscribe(client, mc_cli_data_subscribe_topic, 0); // 订阅消息 QoS为0
+        ESP_LOGI(MQTT_TAG, "订阅命令主题, msg_id=%d", msg_id);
+
+
         // 发送设备在线状态
         char online_msg[] = "{\"properties\":{\"online\":true}}";
         tuya_publish_custom_data(online_msg);
@@ -187,8 +197,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         
     case MQTT_EVENT_DATA:
         ESP_LOGI(MQTT_TAG, "收到MQTT命令:");
-        ESP_LOGI(MQTT_TAG, "主题: %.*s", event->topic_len, event->topic);
-        ESP_LOGI(MQTT_TAG, "数据: %.*s", event->data_len, event->data);
+        printf("mqtt received topic: %.*s \n", event->topic_len, event->topic);
+        printf("topic data: %.*s\r\n", event->data_len, event->data);
+        //ESP_LOGI(MQTT_TAG, "主题: %.*s", event->topic_len, event->topic);  tylink/2631a16994c01c1f45qfha/thing/property/report
+        //ESP_LOGI(MQTT_TAG, "数据: %.*s", event->data_len, event->data);
         // 在这里可以处理从涂鸦平台接收到的命令
         break;
         
@@ -211,7 +223,7 @@ static esp_err_t mqtt_app_start(void)
     ESP_LOGI(MQTT_TAG, "开始MQTT连接...");
     
     // 按照涂鸦文档要求，Client ID格式为 tuyalink_{deviceId}
-    static char client_id[64];  // 使用静态变量减少栈使用
+    // static char client_id[64];  // 使用静态变量减少栈使用
     //snprintf(client_id, sizeof(client_id), "tuyalink_%s", TUYA_DEVICE_ID);
     
     // 动态生成用户名，包含当前时间戳
@@ -316,7 +328,7 @@ static esp_err_t tuya_publish_custom_data(const char* data)
     }
     
     char topic[128];
-    snprintf(topic, sizeof(topic), "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+    snprintf(topic, sizeof(topic), "tylink/%s/thing/property/report", MQTT_DEVICE_ID);
     
     int msg_id = esp_mqtt_client_publish(mqtt_client, topic, data, 0, 1, 0);
     if (msg_id == -1) {
@@ -468,8 +480,8 @@ esp_err_t tuya_publish_sensor_data(float temperature, float humidity)
     time(&now);
     
     snprintf(sensor_data, sizeof(sensor_data), 
-             "{\"properties\":{\"temperature\":%.1f,\"humidity\":%.1f,\"timestamp\":%lld}}", 
-             temperature, humidity, (long long)now);
+             "{\"data\":{\"device_status\":%.1f}}", 
+             temperature);
     
     return tuya_publish_custom_data(sensor_data);
 }
