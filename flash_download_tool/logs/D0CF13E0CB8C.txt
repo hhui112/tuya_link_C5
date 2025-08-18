@@ -1471,3 +1471,304 @@ Total use time: 6 s
 Download result: PASS
 *************************** END ****************************
 
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:03
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 900.4 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 940.2 kbit/s)...
+Wrote 983408 bytes (558871 compressed) at 0x00010000 in 4.0 seconds (effective 1978.0 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: f78a19f939f7fec7325ba88082016889
+Flash md5: f78a19f939f7fec7325ba88082016889
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: e0b2644d52613ce8dd99d3a2c1bddab4
+Flash md5: e0b2644d52613ce8dd99d3a2c1bddab4
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 6 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:04
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:05
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+com closed
+Total use time: 3 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:05
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:05
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.1 seconds (effective 1372.5 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 2465.9 kbit/s)...
+Wrote 983408 bytes (558871 compressed) at 0x00010000 in 4.0 seconds (effective 1950.9 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: f78a19f939f7fec7325ba88082016889
+Flash md5: f78a19f939f7fec7325ba88082016889
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: e0b2644d52613ce8dd99d3a2c1bddab4
+Flash md5: e0b2644d52613ce8dd99d3a2c1bddab4
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 7 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:13
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 895.0 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 965.8 kbit/s)...
+Wrote 983392 bytes (558843 compressed) at 0x00010000 in 4.0 seconds (effective 1978.2 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: f78a19f939f7fec7325ba88082016889
+Flash md5: f78a19f939f7fec7325ba88082016889
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: 6a6e71daf0b9343a2475de62158eff7f
+Flash md5: 6a6e71daf0b9343a2475de62158eff7f
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 6 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:15
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:15
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:15
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:15
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-09:16
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 882.2 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 938.9 kbit/s)...
+Wrote 983392 bytes (558835 compressed) at 0x00010000 in 4.0 seconds (effective 1969.2 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: f78a19f939f7fec7325ba88082016889
+Flash md5: f78a19f939f7fec7325ba88082016889
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: c86d7dd154a46a64614fe1986f3b7710
+Flash md5: c86d7dd154a46a64614fe1986f3b7710
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 7 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-13:46
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 860.6 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 1225.2 kbit/s)...
+Wrote 995248 bytes (566745 compressed) at 0x00010000 in 4.1 seconds (effective 1954.2 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Flash md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: ed8cdb6f6b10e28b15bf4557086db460
+Flash md5: ed8cdb6f6b10e28b15bf4557086db460
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 8 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-14:38
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 874.3 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 817.5 kbit/s)...
+Wrote 995168 bytes (566714 compressed) at 0x00010000 in 4.0 seconds (effective 1969.1 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Flash md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: a9b35cdf55701c8d097a54be788123ba
+Flash md5: a9b35cdf55701c8d097a54be788123ba
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 7 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20250818-14:59
+Connect baud: 115200
+Com:COM4
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 65536 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 0.2 seconds (effective 888.2 kbit/s)...
+Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 891.0 kbit/s)...
+Wrote 995200 bytes (566736 compressed) at 0x00010000 in 4.0 seconds (effective 1965.9 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Flash md5: 42b1f7c7f8e637efc99e3dfdb8dabae3
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 5d61d196adc3dba01928f264eb169be7
+Flash md5: 5d61d196adc3dba01928f264eb169be7
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: 901fcc4e251bd9f143517ff654148ffa
+Flash md5: 901fcc4e251bd9f143517ff654148ffa
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 6 s
+Download result: PASS
+*************************** END ****************************
+

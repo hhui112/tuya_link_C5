@@ -37,7 +37,7 @@ esp_err_t use_wifi_wait_connected(uint32_t timeout_ms);
  * @param humidity 湿度值
  * @return esp_err_t 
  */
-esp_err_t tuya_publish_sensor_data(float temperature, float humidity);
+esp_err_t tuya_publish_sensor_data(uint8_t test_value, char* device_status);
 
 /**
  * @brief 发送心跳数据

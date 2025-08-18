@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "use_wifi.h"
+#include "common.h"
 
 static const char *TAG = "main";
 
@@ -20,6 +21,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // 初始化公共状态
+    common_init();
+
     // 启动WiFi和MQTT连接
     ESP_ERROR_CHECK(use_wifi_start());
 
@@ -31,39 +35,40 @@ void app_main(void)
         ESP_LOGI(TAG, "连接成功！开始IoT数据传输");
 
         // 主循环 - 定期发送数据
-        float device_status = 20.0;
-        float humidity = 50.0;
-        
         while (1) {
             if (use_wifi_is_connected()) {
-                // 发送传感器数据
-                esp_err_t result = tuya_publish_sensor_data(device_status, humidity);
+                // 获取当前IOT状态
+                char current_device_status[32];
+                int32_t current_test_value;
+                get_current_iot_state(current_device_status, sizeof(current_device_status), &current_test_value);
+
+                
+                ESP_LOGI(TAG, "当前IOT状态 - device_status: %s, test_value: %ld", current_device_status, (long)current_test_value);
+                
+                // 根据设备状态执行相应操作
+                if (strcmp(current_device_status, "open") == 0) {
+                    ESP_LOGI(TAG, "设备处于开启状态，执行开启操作");
+                } else if (strcmp(current_device_status, "close") == 0) {
+                    ESP_LOGI(TAG, "设备处于关闭状态，执行关闭操作");
+                }
+
+                // 发送传感器数据（使用本地测试值）
+                esp_err_t result = tuya_publish_sensor_data(current_test_value, current_device_status);
                 if (result == ESP_OK) {
-                    ESP_LOGI(TAG, "传感器数据发送成功: 温度=%.1f°C, 湿度=%.1f%%", 
-                             device_status, humidity);
+                    ESP_LOGI(TAG, "传感器数据发送成功: test_value=%d°C, device_status=%s", 
+                             current_test_value, current_device_status);
                 } else {
                     ESP_LOGW(TAG, "传感器数据发送失败");
                 }
 
-                // 发送心跳
-/*
-                result = tuya_send_heartbeat();
-                if (result == ESP_OK) {
-                    ESP_LOGI(TAG, "心跳发送成功");
-                } else {
-                    ESP_LOGW(TAG, "心跳发送失败");
-                }
-*/
                 // 模拟传感器数据变化
-                device_status += 0.5;
-                humidity += 1.0;
-                if (device_status > 30.0) device_status = 10.0;
-                if (humidity > 80.0) humidity = 50.0;
+                g_iot_state.test_value += 1;
+                if (g_iot_state.test_value > 50) g_iot_state.test_value = 10;
             } else {
                 ESP_LOGW(TAG, "连接已断开，等待重连...");
             }
 
-            vTaskDelay(10000 / portTICK_PERIOD_MS); // 30秒间隔
+            vTaskDelay(10000 / portTICK_PERIOD_MS); // 10秒间隔
         }
     } else {
         ESP_LOGE(TAG, "连接失败，程序退出");

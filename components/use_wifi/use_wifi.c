@@ -17,6 +17,8 @@
 #include "esp_sntp.h"
 #include "mqtt_client.h"
 #include "mbedtls/md.h"
+#include "cjson.h"
+#include "common.h"
 
 /* 内置配置 - WiFi参数 */
 #define WIFI_SSID               "kakakaka"
@@ -86,6 +88,7 @@ static esp_err_t wifi_init_sta(void);
 static esp_err_t tuya_publish_custom_data(const char* data);
 static void generate_tuya_username(char* username, size_t size);
 static void generate_tuya_password(const char* username, char* password, size_t size);
+static esp_err_t parse_iot_command(const char* json_data, int data_len);
 
 /* 初始化SNTP时间同步 */
 static void initialize_sntp(void)
@@ -199,9 +202,14 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         ESP_LOGI(MQTT_TAG, "收到MQTT命令:");
         printf("mqtt received topic: %.*s \n", event->topic_len, event->topic);
         printf("topic data: %.*s\r\n", event->data_len, event->data);
-        //ESP_LOGI(MQTT_TAG, "主题: %.*s", event->topic_len, event->topic);  tylink/2631a16994c01c1f45qfha/thing/property/report
-        //ESP_LOGI(MQTT_TAG, "数据: %.*s", event->data_len, event->data);
-        // 在这里可以处理从涂鸦平台接收到的命令
+        
+        // 解析并更新设备状态
+        esp_err_t parse_result = parse_iot_command(event->data, event->data_len);
+        if (parse_result == ESP_OK) {
+            ESP_LOGI(MQTT_TAG, "IOT命令解析成功");
+        } else {
+            ESP_LOGW(MQTT_TAG, "IOT命令解析失败");
+        }
         break;
         
     case MQTT_EVENT_ERROR:
@@ -473,15 +481,15 @@ esp_err_t use_wifi_wait_connected(uint32_t timeout_ms)
     }
 }
 
-esp_err_t tuya_publish_sensor_data(float temperature, float humidity)
+esp_err_t tuya_publish_sensor_data(uint8_t test_value, char* device_status)
 {
     char sensor_data[256];
     time_t now;
     time(&now);
     
     snprintf(sensor_data, sizeof(sensor_data), 
-             "{\"data\":{\"device_status\":%.1f}}", 
-             temperature);
+             "{\"data\":{\"test_value\":%d,\"device_status\":\"%s\"}}", 
+             test_value, device_status);
     
     return tuya_publish_custom_data(sensor_data);
 }
@@ -506,4 +514,72 @@ bool use_wifi_is_connected(void)
     
     EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
     return (bits & WIFI_CONNECTED_BIT) && (bits & MQTT_CONNECTED_BIT);
+}
+
+/**
+ * @brief 解析IOT下发的JSON命令
+ */
+static esp_err_t parse_iot_command(const char* json_data, int data_len)
+{
+    // 创建null结尾的字符串
+    char *json_str = malloc(data_len + 1);
+    if (json_str == NULL) {
+        ESP_LOGE(MQTT_TAG, "内存分配失败");
+        return ESP_ERR_NO_MEM;
+    }
+    
+    memcpy(json_str, json_data, data_len);
+    json_str[data_len] = '\0';
+
+    ESP_LOGI(MQTT_TAG, "开始解析JSON: %s", json_str);
+
+    // 解析JSON
+    cJSON *root = cJSON_Parse(json_str);
+    free(json_str);
+    
+    if (root == NULL) {
+        ESP_LOGE(MQTT_TAG, "JSON解析失败");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool updated = false;
+
+    // 获取data字段
+    cJSON *data_obj = cJSON_GetObjectItem(root, "data");
+    if (data_obj != NULL && cJSON_IsObject(data_obj)) 
+    {
+        // 解析device_status
+        cJSON *device_status_item = cJSON_GetObjectItem(data_obj, "device_status");
+        if (device_status_item != NULL && cJSON_IsString(device_status_item)) {
+            const char *new_status = cJSON_GetStringValue(device_status_item);
+            if (new_status != NULL) {
+                set_device_status(new_status);
+                printf("更新device_status: %s", new_status);
+                updated = true;
+            }
+        }
+
+        // 解析test_value
+        cJSON *test_value_item = cJSON_GetObjectItem(data_obj, "test_value");
+        if (test_value_item != NULL && cJSON_IsNumber(test_value_item)) {
+            int32_t new_value = (int32_t)cJSON_GetNumberValue(test_value_item);
+            set_test_value(new_value);
+            printf("更新test_value: %ld", (long)new_value);
+            updated = true;
+        }
+    }
+
+    cJSON_Delete(root);
+
+    if (updated) {
+        char current_status[32];
+        int32_t current_value;
+        get_current_iot_state(current_status, sizeof(current_status), &current_value);
+        ESP_LOGI(MQTT_TAG, "当前状态 - device_status: %s, test_value: %ld", 
+                 current_status, (long)current_value);
+        return ESP_OK;
+    } else {
+        ESP_LOGW(MQTT_TAG, "没有找到可识别的状态字段");
+        return ESP_ERR_NOT_FOUND;
+    }
 } 
