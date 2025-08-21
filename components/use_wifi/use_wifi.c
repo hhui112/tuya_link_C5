@@ -20,24 +20,7 @@
 #include "cjson.h"
 #include "common.h"
 
-/* 内置配置 - WiFi参数 */
-#define WIFI_SSID               "kakakaka"
-#define WIFI_PASSWORD           "fzh990112"
-#define WIFI_MAXIMUM_RETRY      10
-
-/* 内置配置 - 涂鸦IoT MQTT参数 */
-#define TUYA_MQTT_URL           "mqtts://m1.tuyacn.com:8883"
-#define TUYA_MQTT_HOST          "m1.tuyacn.com"
-#define TUYA_MQTT_PORT          8883
-#define TUYA_DEVICE_ID          "tuyalink_2631a16994c01c1f45qfha"
-#define MQTT_DEVICE_ID          "2631a16994c01c1f45qfha"
-#define TUYA_DEVICE_SECRET      "cba720b9af92e95c185bf9d633714b3e6ad95cf546b8f00124e76303861600ee"
-#define TUYA_PRODUCT_ID         "owes0z4baov2vqgx"
-
-/* 静态认证信息 - 已在MQTT.FX验证可用 */
-#define TUYA_CLIENT_ID          "tuyalink_2631a16994c01c1f45qfha"
-#define TUYA_USERNAME           "2631a16994c01c1f45qfha|signMethod=hmacSha256,timestamp=1754706255,secureMode=1,accessType=1"
-#define TUYA_PASSWORD           "2a2496d9fc06402243680e34c60171ae7b88aebbea0ced0055d57724be9ee23f"
+/* 静态认证信息（备用，当前使用动态生成） */
 
 const char tuya_cacert_pem[] = {\
 "-----BEGIN CERTIFICATE-----\n"\
@@ -64,11 +47,7 @@ const char tuya_cacert_pem[] = {\
 "4uJEvlz36hz1\n"\
 "-----END CERTIFICATE-----\n"};
 
-/* 事件组位定义 */
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-#define MQTT_CONNECTED_BIT BIT2
-#define MQTT_FAIL_BIT BIT3
+/* 事件组位定义（已移到common.h） */
 
 static const char *TAG = "use_wifi";
 static const char *MQTT_TAG = "MQTT_TUYA";
@@ -78,6 +57,7 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static int s_retry_num = 0;
 static bool is_initialized = false;
+static bool mqtt_client_created = false;
 
 /* 内部函数声明 */
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
@@ -89,25 +69,51 @@ static esp_err_t tuya_publish_custom_data(const char* data);
 static void generate_tuya_username(char* username, size_t size);
 static void generate_tuya_password(const char* username, char* password, size_t size);
 static esp_err_t parse_iot_command(const char* json_data, int data_len);
+static void sntp_sync_task(void *arg);
+static void mqtt_reconnect_task(void *arg);
 
 /* 初始化SNTP时间同步 */
 static void initialize_sntp(void)
 {
-    ESP_LOGI(TAG, "初始化SNTP时间同步");
+    // 清除SNTP同步标志位
+    xEventGroupClearBits(s_wifi_event_group, SNTP_SYNCED_BIT);
+    
+    // 如果SNTP已经初始化，先停止
+    if (esp_sntp_enabled()) {
+        esp_sntp_stop();
+    }
+    
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_setservername(1, "time.nist.gov");
     esp_sntp_init();
     
-    // 等待时间同步完成
+    // 创建SNTP同步任务
+    xTaskCreate(sntp_sync_task, "sntp_sync", 4096, NULL, 5, NULL);
+}
+
+/* SNTP同步任务 */
+static void sntp_sync_task(void *arg)
+{
     time_t now = 0;
     struct tm timeinfo = { 0 };
     int retry = 0;
-    const int retry_count = 10; // 减少等待时间
+    const int retry_count = 20; // 增加重试次数，给更多机会
+    static int sntp_fail_count = 0; // 静态变量记录连续失败次数
+    
+    ESP_LOGI(TAG, "开始时间同步 (第%d次尝试)", sntp_fail_count + 1);
     
     while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        // 检查WiFi是否仍然连接
+        EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
+        if (!(bits & WIFI_CONNECTED_BIT)) {
+            ESP_LOGW(TAG, "WiFi断开, 取消时间同步");
+            vTaskDelete(NULL);
+            return;
+        }
+        
         ESP_LOGI(TAG, "等待系统时间同步... (%d/%d)", retry, retry_count);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
     
     time(&now);
@@ -117,9 +123,31 @@ static void initialize_sntp(void)
         ESP_LOGI(TAG, "时间同步成功: %04d-%02d-%02d %02d:%02d:%02d",
                  timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
                  timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        
+        // 同步成功，重置失败计数
+        sntp_fail_count = 0;
+        
+        // 设置SNTP同步成功标志位
+        xEventGroupSetBits(s_wifi_event_group, SNTP_SYNCED_BIT);
+        
+        // 创建MQTT重连任务
+        xTaskCreate(mqtt_reconnect_task, "mqtt_reconnect", 4096, NULL, 5, NULL);
     } else {
-        ESP_LOGW(TAG, "时间同步失败，继续使用TLS连接");
+        ESP_LOGE(TAG, "时间同步失败! (连续失败 %d 次)", ++sntp_fail_count);
+        
+        // 如果连续失败超过3次，重启系统
+        if (sntp_fail_count >= 2) {
+            ESP_LOGE(TAG, "SNTP连续失败2次, 系统即将重启...");
+            vTaskDelay(3000 / portTICK_PERIOD_MS); // 延迟3秒让日志输出
+            esp_restart();
+        } else {
+            ESP_LOGW(TAG, "将在下次WiFi重连时重试时间同步");
+            // 不设置SNTP_SYNCED_BIT，让系统在下次WiFi重连时重试
+        }
     }
+    
+    // 任务完成，删除自己
+    vTaskDelete(NULL);
 }
 
 /* WiFi事件处理器 */
@@ -130,6 +158,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         esp_wifi_connect();
     // wifi连接失败
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        // WiFi断开时清理所有连接状态
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | MQTT_CONNECTED_BIT | SNTP_SYNCED_BIT);
+        
         if (s_retry_num < WIFI_MAXIMUM_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -144,13 +175,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         ESP_LOGI(TAG, "WiFi连接成功: IP地址:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        
-        // WiFi连接成功后进行时间同步，然后启动MQTT
-        ESP_LOGI(TAG, "开始时间同步...");
+        // WiFi连接成功后进行时间同步
+        ESP_LOGI(TAG, "WiFi连接成功, 开始时间同步...");
         initialize_sntp();
-        
-        ESP_LOGI(TAG, "开始连接MQTT...");
-        mqtt_app_start();
+        // 注意：MQTT连接现在由SNTP同步完成后自动触发
     }
 }
 
@@ -169,8 +197,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         char mc_cli_data_publish_topic[128] = {0};      // 发布主题用于发送控制消息
         char mc_cli_data_subscribe_topic[128] = {0};    // 订阅主题用于接收平台下发的消息
 
-        snprintf(mc_cli_data_subscribe_topic, sizeof(mc_cli_data_subscribe_topic), "tylink/%s/thing/property/set", MQTT_DEVICE_ID);
-        snprintf(mc_cli_data_publish_topic, sizeof(mc_cli_data_publish_topic), "tylink/%s/thing/property/report", MQTT_DEVICE_ID);
+        snprintf(mc_cli_data_subscribe_topic, sizeof(mc_cli_data_subscribe_topic), "tylink/%s/thing/property/set", TUYA_DEVICE_ID);
+        snprintf(mc_cli_data_publish_topic, sizeof(mc_cli_data_publish_topic), "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
 
         printf("%s\n", mc_cli_data_subscribe_topic);
         printf("%s\n", mc_cli_data_publish_topic);
@@ -187,7 +215,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(MQTT_TAG, "MQTT断开连接");
+        xEventGroupClearBits(s_wifi_event_group, MQTT_CONNECTED_BIT);
         xEventGroupSetBits(s_wifi_event_group, MQTT_FAIL_BIT);
+        
+        // 不在这里直接重连MQTT，让WiFi重连流程来处理
+        // 这样可以确保时间同步和连接顺序的正确性
         break;
         
     case MQTT_EVENT_SUBSCRIBED:
@@ -205,10 +237,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         
         // 解析并更新设备状态
         esp_err_t parse_result = parse_iot_command(event->data, event->data_len);
-        if (parse_result == ESP_OK) {
-            ESP_LOGI(MQTT_TAG, "IOT命令解析成功");
-        } else {
-            ESP_LOGW(MQTT_TAG, "IOT命令解析失败");
+        if (parse_result != ESP_OK) {
+            ESP_LOGW(MQTT_TAG, "命令解析失败");
         }
         break;
         
@@ -225,22 +255,60 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
+/* MQTT重连任务 */
+static void mqtt_reconnect_task(void *arg)
+{
+    // 等待WiFi和SNTP都准备好
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+            WIFI_CONNECTED_BIT | SNTP_SYNCED_BIT,
+            pdFALSE,
+            pdTRUE,  // 等待所有位都设置
+            pdMS_TO_TICKS(30000)); // 30秒超时
+    
+    // 再次确认WiFi状态（防止在等待期间WiFi断开）
+    EventBits_t current_bits = xEventGroupGetBits(s_wifi_event_group);
+    if ((bits & WIFI_CONNECTED_BIT) && (bits & SNTP_SYNCED_BIT) && 
+        (current_bits & WIFI_CONNECTED_BIT)) {
+        ESP_LOGI(MQTT_TAG, "开始连接MQTT");
+        
+        // 如果MQTT客户端已存在，先断开
+        if (mqtt_client && mqtt_client_created) {
+            esp_mqtt_client_stop(mqtt_client);
+            esp_mqtt_client_destroy(mqtt_client);
+            mqtt_client = NULL;
+            mqtt_client_created = false;
+        }
+        
+        // 启动新的MQTT连接
+        esp_err_t ret = mqtt_app_start();
+        if (ret != ESP_OK) {
+            ESP_LOGE(MQTT_TAG, "MQTT启动失败: %s", esp_err_to_name(ret));
+        }
+    } else {
+        if (!(current_bits & WIFI_CONNECTED_BIT)) {
+            ESP_LOGW(MQTT_TAG, "WiFi已断开, 取消连接");
+        } else {
+            ESP_LOGW(MQTT_TAG, "等待超时, 取消连接");
+        }
+    }
+    
+    // 任务完成，删除自己
+    vTaskDelete(NULL);
+}
+
 /* 启动MQTT客户端 */
 static esp_err_t mqtt_app_start(void)
 {
-    ESP_LOGI(MQTT_TAG, "开始MQTT连接...");
+    // Client ID 格式：tuyalink_{deviceId}
+    static char client_id[64];
+    snprintf(client_id, sizeof(client_id), "tuyalink_%s", TUYA_DEVICE_ID);
+
+    // 动态生成用户名和密码
+    static char username[128];
+    static char password[128];
+    generate_tuya_username(username, sizeof(username));
+    generate_tuya_password(username, password, sizeof(password));
     
-    // 按照涂鸦文档要求，Client ID格式为 tuyalink_{deviceId}
-    // static char client_id[64];  // 使用静态变量减少栈使用
-    //snprintf(client_id, sizeof(client_id), "tuyalink_%s", TUYA_DEVICE_ID);
-    
-    // 动态生成用户名，包含当前时间戳
-    //static char username[128];  // 使用静态变量减少栈使用
-    //generate_tuya_username(username, sizeof(username));
-    
-    // 生成HMAC-SHA256密码
-    //static char password[128];  // 使用静态变量减少栈使用
-    //generate_tuya_password(username, password, sizeof(password));
     
     const esp_mqtt_client_config_t mqtt_cfg = {
         .broker = {
@@ -249,9 +317,9 @@ static esp_err_t mqtt_app_start(void)
             .verification.certificate_len = sizeof(tuya_cacert_pem),
         },
         .credentials = {
-            .client_id = TUYA_CLIENT_ID,
-            .username = TUYA_USERNAME,
-            .authentication.password = TUYA_PASSWORD,
+            .client_id = client_id,
+            .username = username,
+            .authentication.password = password,
         },
         .session = {
             .keepalive = 60,
@@ -265,15 +333,17 @@ static esp_err_t mqtt_app_start(void)
         return ESP_FAIL;
     }
     
+    mqtt_client_created = true;
     esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    
     
     esp_err_t ret = esp_mqtt_client_start(mqtt_client);
     if (ret != ESP_OK) {
         ESP_LOGE(MQTT_TAG, "MQTT客户端启动失败");
+        mqtt_client_created = false;
         return ret;
     }
     
+    ESP_LOGI(MQTT_TAG, "MQTT客户端启动成功");
     return ESP_OK;
 }
 
@@ -324,7 +394,7 @@ static esp_err_t wifi_init_sta(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "WiFi初始化完成，开始连接到: %s", WIFI_SSID);
+    ESP_LOGI(TAG, "WiFi初始化完成, 开始连接到: %s", WIFI_SSID);
     return ESP_OK;
 }
 
@@ -336,7 +406,7 @@ static esp_err_t tuya_publish_custom_data(const char* data)
     }
     
     char topic[128];
-    snprintf(topic, sizeof(topic), "tylink/%s/thing/property/report", MQTT_DEVICE_ID);
+    snprintf(topic, sizeof(topic), "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
     
     int msg_id = esp_mqtt_client_publish(mqtt_client, topic, data, 0, 1, 0);
     if (msg_id == -1) {
@@ -353,20 +423,20 @@ static void generate_tuya_username(char* username, size_t size)
 {
     time_t now;
     time(&now);
-    
-    // 按照涂鸦文档格式: ${deviceId}|signMethod=hmacSha256,timestamp=${当前10位时间戳},secureMode=1,accessType=1
-    snprintf(username, size, "%s|signMethod=hmacSha256,timestamp=%ld,secureMode=1,accessType=1", 
+
+    // username = deviceId|signMethod=hmacSha256,timestamp=xxxx,secureMode=1,accessType=1
+    snprintf(username, size,
+             "%s|signMethod=hmacSha256,timestamp=%ld,secureMode=1,accessType=1",
              TUYA_DEVICE_ID, (long)now);
 }
 
 /* 生成涂鸦MQTT密码 */
 static void generate_tuya_password(const char* username, char* password, size_t size)
 {
-    // 从username中提取时间戳
-    char timestamp_str[16] = {0};  // 减小缓冲区大小
+    char timestamp_str[20] = {0};  
     const char* timestamp_start = strstr(username, "timestamp=");
     if (timestamp_start) {
-        timestamp_start += 10; // 跳过 "timestamp="
+        timestamp_start += strlen("timestamp="); // 跳过 "timestamp="
         const char* timestamp_end = strchr(timestamp_start, ',');
         if (timestamp_end) {
             size_t len = timestamp_end - timestamp_start;
@@ -376,39 +446,44 @@ static void generate_tuya_password(const char* username, char* password, size_t 
             }
         }
     }
-    
-    // 如果没有找到时间戳，使用当前时间
+
+    // 如果没取到时间戳，用当前时间
     if (strlen(timestamp_str) == 0) {
         time_t now;
         time(&now);
         snprintf(timestamp_str, sizeof(timestamp_str), "%ld", (long)now);
     }
-    
-    char content[128];  // 减小缓冲区大小
-    snprintf(content, sizeof(content), "deviceId=%s,timestamp=%s,secureMode=1,accessType=1", 
+
+    // 生成待签名字符串
+    char content[256];
+    snprintf(content, sizeof(content),
+             "deviceId=%s,timestamp=%s,secureMode=1,accessType=1",
              TUYA_DEVICE_ID, timestamp_str);
-    
-    // 使用HMAC-SHA256计算密码
+
+    // HMAC-SHA256 签名
     unsigned char hmac_result[32];
-    
     mbedtls_md_context_t ctx;
     mbedtls_md_init(&ctx);
-    
+
     if (mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1) == 0) {
-        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)TUYA_DEVICE_SECRET, strlen(TUYA_DEVICE_SECRET));
+        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)TUYA_DEVICE_SECRET,
+                               strlen(TUYA_DEVICE_SECRET));
         mbedtls_md_hmac_update(&ctx, (const unsigned char*)content, strlen(content));
         mbedtls_md_hmac_finish(&ctx, hmac_result);
     }
     mbedtls_md_free(&ctx);
-    
-    // 转换为十六进制字符串
-    for (int i = 0; i < 32 && i * 2 + 1 < size; i++) {
-        snprintf(&password[i * 2], 3, "%02x", hmac_result[i]);
+
+    // 转成 hex 字符串
+    if (size > 64) { // 32字节 HMAC -> 64字符 HEX
+        for (int i = 0; i < 32; i++) {
+            sprintf(&password[i * 2], "%02x", hmac_result[i]);
+        }
+        password[64] = '\0'; // 确保字符串结尾
     }
-    
-    // 移除详细的调试日志以节省栈空间
-    ESP_LOGI(MQTT_TAG, "密码生成完成");
+
+    ESP_LOGI(MQTT_TAG, "MQTT密码生成完成");
 }
+
 
 /* 公共API实现 */
 
@@ -437,14 +512,23 @@ esp_err_t use_wifi_stop(void)
         return ESP_OK;
     }
     
-    if (mqtt_client) {
+    // 停止SNTP
+    if (esp_sntp_enabled()) {
+        esp_sntp_stop();
+    }
+    
+    // 停止MQTT
+    if (mqtt_client && mqtt_client_created) {
         esp_mqtt_client_stop(mqtt_client);
         esp_mqtt_client_destroy(mqtt_client);
         mqtt_client = NULL;
+        mqtt_client_created = false;
     }
     
+    // 停止WiFi
     esp_wifi_stop();
     
+    // 清理事件组
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
@@ -464,19 +548,22 @@ esp_err_t use_wifi_wait_connected(uint32_t timeout_ms)
     TickType_t timeout_ticks = (timeout_ms == 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | MQTT_CONNECTED_BIT,
+            WIFI_CONNECTED_BIT | SNTP_SYNCED_BIT | MQTT_CONNECTED_BIT,
             pdFALSE,
             pdTRUE,  // 等待所有位都设置
             timeout_ticks);
     
-    if ((bits & WIFI_CONNECTED_BIT) && (bits & MQTT_CONNECTED_BIT)) {
-        ESP_LOGI(TAG, "WiFi和MQTT都连接成功！");
+    if ((bits & WIFI_CONNECTED_BIT) && (bits & SNTP_SYNCED_BIT) && (bits & MQTT_CONNECTED_BIT)) {
+        ESP_LOGI(TAG, "WiFi、SNTP和MQTT都连接成功！");
         return ESP_OK;
     } else if (timeout_ms > 0) {
         ESP_LOGW(TAG, "等待连接超时");
+        if (!(bits & WIFI_CONNECTED_BIT)) ESP_LOGW(TAG, "WiFi未连接");
+        if (!(bits & SNTP_SYNCED_BIT)) ESP_LOGW(TAG, "SNTP未同步");
+        if (!(bits & MQTT_CONNECTED_BIT)) ESP_LOGW(TAG, "MQTT未连接");
         return ESP_ERR_TIMEOUT;
     } else {
-        ESP_LOGE(TAG, "WiFi或MQTT连接失败");
+        ESP_LOGE(TAG, "WiFi、SNTP或MQTT连接失败");
         return ESP_FAIL;
     }
 }
@@ -513,7 +600,7 @@ bool use_wifi_is_connected(void)
     }
     
     EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
-    return (bits & WIFI_CONNECTED_BIT) && (bits & MQTT_CONNECTED_BIT);
+    return (bits & WIFI_CONNECTED_BIT) && (bits & SNTP_SYNCED_BIT) && (bits & MQTT_CONNECTED_BIT);
 }
 
 /**

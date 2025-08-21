@@ -23,7 +23,7 @@ esp_err_t use_wifi_start(void);
 esp_err_t use_wifi_stop(void);
 
 /**
- * @brief 等待WiFi和MQTT连接成功
+ * @brief 等待WiFi、SNTP和MQTT连接成功
  * 
  * @param timeout_ms 超时时间（毫秒），0表示永久等待
  * @return esp_err_t ESP_OK表示连接成功，ESP_ERR_TIMEOUT表示超时
@@ -33,23 +33,23 @@ esp_err_t use_wifi_wait_connected(uint32_t timeout_ms);
 /**
  * @brief 发布传感器数据到涂鸦平台
  * 
- * @param temperature 温度值
- * @param humidity 湿度值
- * @return esp_err_t 
+ * @param test_value 测试数值
+ * @param device_status 设备状态字符串
+ * @return esp_err_t ESP_OK表示成功
  */
 esp_err_t tuya_publish_sensor_data(uint8_t test_value, char* device_status);
 
 /**
- * @brief 发送心跳数据
+ * @brief 发送心跳数据到涂鸦平台
  * 
- * @return esp_err_t 
+ * @return esp_err_t ESP_OK表示成功
  */
 esp_err_t tuya_send_heartbeat(void);
 
 /**
- * @brief 检查连接状态
+ * @brief 检查完整连接状态
  * 
- * @return true 如果WiFi和MQTT都已连接
+ * @return true 如果WiFi、SNTP和MQTT都已连接
  * @return false 如果有任何连接断开
  */
 bool use_wifi_is_connected(void);

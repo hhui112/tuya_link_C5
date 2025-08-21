@@ -1,12 +1,15 @@
-/* ESP32-C5 WiFi + 涂鸦IoT MQTT 简化示例
-   
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
+/* 
+* @Author: FZH
+* @Date: 2025-08-21 16:09:32
+* @LastEditors: FZH
+* @LastEditTime: 2025-08-21 16:09:32
 */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "use_wifi.h"
+#include "use_ble_server.h"
 #include "common.h"
 
 static const char *TAG = "main";
@@ -23,7 +26,6 @@ void app_main(void)
 
     // 初始化公共状态
     common_init();
-
     // 启动WiFi和MQTT连接
     ESP_ERROR_CHECK(use_wifi_start());
 
