@@ -15,6 +15,14 @@
   "idf.portWin": "COM4",
   "idf.flashType": "UART",
   "files.associations": {
-    "common.h": "c"
+    "common.h": "c",
+    "nimble_port_freertos.h": "c",
+    "use_ble_server.h": "c",
+    "ble_gap.h": "c",
+    "task.h": "c",
+    "ble_store_config.h": "c",
+    "ble.h": "c",
+    "ble_svc_gatt.h": "c",
+    "ble_gatt.h": "c"
   }
 }

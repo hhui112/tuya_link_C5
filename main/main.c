@@ -26,6 +26,17 @@ void app_main(void)
 
     // 初始化公共状态
     common_init();
+    
+    // 初始化并启动BLE服务器
+    ESP_LOGI(TAG, "初始化BLE服务器...");
+    esp_err_t ble_ret = use_ble_server_init();
+    if (ble_ret == ESP_OK) {
+        ESP_LOGI(TAG, "BLE服务器初始化成功");
+        use_ble_server_start();
+    } else {
+        ESP_LOGE(TAG, "BLE服务器初始化失败: %s", esp_err_to_name(ble_ret));
+    }
+    
     // 启动WiFi和MQTT连接
     ESP_ERROR_CHECK(use_wifi_start());
 
@@ -45,7 +56,15 @@ void app_main(void)
                 get_current_iot_state(current_device_status, sizeof(current_device_status), &current_test_value);
 
                 
-                ESP_LOGI(TAG, "当前IOT状态 - device_status: %s, test_value: %ld", current_device_status, (long)current_test_value);
+                ESP_LOGI(TAG, "当前IOT状态 - device_status: %s, test_value: %ld, BLE: %s", 
+                         current_device_status, (long)current_test_value, 
+                         use_ble_server_is_connected() ? "已连接" : "未连接");
+                
+                // 显示BLE MTU信息（仅在连接时）
+                if (use_ble_server_is_connected()) {
+                    ESP_LOGI(TAG, "BLE MTU: %d 字节, 最大传输: %d 字节", 
+                             use_ble_server_get_mtu(), use_ble_server_get_max_data_len());
+                }
                 
                 // 根据设备状态执行相应操作
                 if (strcmp(current_device_status, "open") == 0) {
@@ -62,6 +81,16 @@ void app_main(void)
                 } else {
                     ESP_LOGW(TAG, "传感器数据发送失败");
                 }
+
+                // 简化版本：仅在BLE连接时发送测试数据（可选）
+                static int ble_send_counter = 0;
+                if (use_ble_server_is_connected() && (ble_send_counter % 5 == 0)) {  // 每50秒发送一次测试数据
+                    esp_err_t ble_result = use_ble_server_update_device_status(current_device_status, current_test_value);
+                    if (ble_result == ESP_OK) {
+                        ESP_LOGI(TAG, "BLE测试数据发送成功");
+                    }
+                }
+                ble_send_counter++;
 
                 // 模拟传感器数据变化
                 g_iot_state.test_value += 1;
