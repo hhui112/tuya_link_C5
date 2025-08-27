@@ -1,5 +1,4 @@
 /*
- * 基于 ESP-IDF 官方 NimBLE GATT Server 入门示例
  * 参考：https://github.com/espressif/esp-idf/tree/v5.5/examples/bluetooth/ble_get_started/nimble/NimBLE_GATT_Server
  */
 
@@ -24,8 +23,9 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "use_ble_server.h"
+#include "common.h"
 
-static const char *TAG = "BLE_SERVER";
+static const char *TAG = "BLE";
 
 /* 连接状态 */
 static bool connected = false;
@@ -51,21 +51,18 @@ static void print_received_data(void)
 {
     if (received_len == 0) return;
     
-    ESP_LOGI(TAG, "=== 收到APP数据 ===");
-    ESP_LOGI(TAG, "长度: %d 字节", received_len);
+    ESP_LOGI(TAG, "BLE data received length: %d bytes", received_len);
     
     /* 简化版本：全部当作字符串显示 */
     char text[513] = {0};
     int copy_len = (received_len < 512) ? received_len : 512;
     memcpy(text, received_data, copy_len);
     
-    ESP_LOGI(TAG, "内容: %s", text);
+    ESP_LOGI(TAG, "BLE data: %s", text);
     
     if (copy_len < received_len) {
-        ESP_LOGI(TAG, " 数据被截断, 显示前512字节");
+        ESP_LOGI(TAG, "BLE data is truncated, display the first 512 bytes");
     }
-    
-    ESP_LOGI(TAG, "==================");
 }
 
 /* GATT 服务器读写回调 */
@@ -91,7 +88,22 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         }
         
         ble_hs_mbuf_to_flat(ctxt->om, received_data, sizeof(received_data), &received_len);
-        print_received_data();
+        
+        // 准备统一消息结构
+        g_msg_queue_t msg;
+        msg.source = MSG_SOURCE_BLE;
+        msg.data_len = (received_len < MAX_MSG_SIZE) ? received_len : MAX_MSG_SIZE;
+        memcpy(msg.data, received_data, msg.data_len);
+        
+        // 发送到统一消息队列
+        BaseType_t xStatus = xQueueSend(g_msg_queue, &msg, 0);
+        if (xStatus == pdPASS) {
+            ESP_LOGI(TAG, "BLE消息已发送到统一队列: %d字节", msg.data_len);
+        } else {
+            ESP_LOGW(TAG, "统一消息队列已满，直接处理数据");
+            print_received_data();  // 作为备用处理
+        }
+        
         return 0;
 
     default:
@@ -125,10 +137,9 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             connected = true;
             conn_handle = event->connect.conn_handle;
-            ESP_LOGI(TAG, "✅ 设备已连接，连接句柄: %d", conn_handle);
+            ESP_LOGI(TAG, "设备已连接，连接句柄: %d", conn_handle);
             
             // 主动触发 MTU 协商
-            ESP_LOGI(TAG, "🔄 开始 MTU 协商...");
             int mtu_rc = ble_gattc_exchange_mtu(conn_handle, NULL, NULL);
             if (mtu_rc != 0) {
                 ESP_LOGW(TAG, "MTU 协商启动失败: %d", mtu_rc);
@@ -152,15 +163,11 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
-        ESP_LOGI(TAG, "🔄 MTU 协商完成!");
-        ESP_LOGI(TAG, "连接句柄=%d, 协商后MTU=%d 字节", 
+        ESP_LOGI(TAG, "连接句柄=%d, MTU=%d 字节", 
                  event->mtu.conn_handle, event->mtu.value);
-        ESP_LOGI(TAG, "单次最大传输: %d 字节 (ATT开销已扣除)", 
-                 event->mtu.value - 3);
-        
         // 验证MTU值
-        uint16_t actual_mtu = ble_att_mtu(event->mtu.conn_handle);
-        ESP_LOGI(TAG, "验证实际MTU: %d 字节", actual_mtu);
+        //uint16_t actual_mtu = ble_att_mtu(event->mtu.conn_handle);
+        //ESP_LOGI(TAG, "验证实际MTU: %d 字节", actual_mtu);
         return 0;
 
     default:
@@ -234,19 +241,22 @@ static int gatt_svr_init(void)
     return 0;
 }
 
+
+
 /* 外部接口实现 */
 
-esp_err_t use_ble_server_init(void)
+esp_err_t initialize_ble_server(void)
 {
-    ESP_LOGI(TAG, "初始化 NimBLE GATT 服务器");
+    ESP_LOGI(TAG, "初始化并启动 NimBLE GATT 服务器");
 
+    // 初始化 NimBLE 端口
     nimble_port_init();
 
     /* 配置主机栈 */
     ble_hs_cfg.sync_cb = ble_app_on_sync;
     
     /* 配置 ATT MTU 大小 */
-    ble_att_set_preferred_mtu(512);  // 设置首选MTU为512字节，支持更大传输
+    ble_att_set_preferred_mtu(500);  // 设置首选MTU为512字节，支持更大传输
 
     /* 初始化服务 */
     int rc = gatt_svr_init();
@@ -256,22 +266,15 @@ esp_err_t use_ble_server_init(void)
     }
 
     /* 设置设备名称 */
-    rc = ble_svc_gap_device_name_set("ESP32-C5");
+    rc = ble_svc_gap_device_name_set(DEVICE_NAME);
     if (rc != 0) {
         ESP_LOGW(TAG, "设置设备名称失败: %d", rc);
     }
 
-    ESP_LOGI(TAG, "BLE 服务器初始化完成");
-    return ESP_OK;
-}
-
-esp_err_t use_ble_server_start(void)
-{
-    ESP_LOGI(TAG, "启动 BLE 服务器");
-    
     /* 启动 NimBLE 主机任务 */
     nimble_port_freertos_init(host_task);
 
+    ESP_LOGI(TAG, "BLE 服务器初始化并启动完成");
     return ESP_OK;
 }
 

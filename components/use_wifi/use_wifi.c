@@ -68,7 +68,7 @@ static esp_err_t wifi_init_sta(void);
 static esp_err_t tuya_publish_custom_data(const char* data);
 static void generate_tuya_username(char* username, size_t size);
 static void generate_tuya_password(const char* username, char* password, size_t size);
-static esp_err_t parse_iot_command(const char* json_data, int data_len);
+static esp_err_t tuya_mqtt_parse_data(const char* json_data, int data_len);
 static void sntp_sync_task(void *arg);
 static void mqtt_reconnect_task(void *arg);
 
@@ -236,7 +236,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         printf("topic data: %.*s\r\n", event->data_len, event->data);
         
         // 解析并更新设备状态
-        esp_err_t parse_result = parse_iot_command(event->data, event->data_len);
+        esp_err_t parse_result = tuya_mqtt_parse_data(event->data, event->data_len);
         if (parse_result != ESP_OK) {
             ESP_LOGW(MQTT_TAG, "命令解析失败");
         }
@@ -606,7 +606,7 @@ bool use_wifi_is_connected(void)
 /**
  * @brief 解析IOT下发的JSON命令
  */
-static esp_err_t parse_iot_command(const char* json_data, int data_len)
+static esp_err_t tuya_mqtt_parse_data(const char* json_data, int data_len)
 {
     // 创建null结尾的字符串
     char *json_str = malloc(data_len + 1);
@@ -654,6 +654,24 @@ static esp_err_t parse_iot_command(const char* json_data, int data_len)
             printf("更新test_value: %ld", (long)new_value);
             updated = true;
         }
+
+        cJSON *device_status_item = cJSON_GetObjectItem(data_obj, "mccil");
+        if (device_status_item != NULL && cJSON_IsString(device_status_item)) {
+            const char *new_status = cJSON_GetStringValue(device_status_item);
+            if (new_status != NULL) {
+                printf("mccil data: %s", new_status);
+                // 解析mccil数据
+                cJSON *mccil_data_obj = cJSON_Parse(new_status);
+                if (mccil_data_obj != NULL && cJSON_IsObject(mccil_data_obj)) {
+                    // 解析mccil_data_obj
+                }
+
+
+                updated = true;
+            }
+        }
+
+
     }
 
     cJSON_Delete(root);

@@ -23,6 +23,8 @@
     "ble_store_config.h": "c",
     "ble.h": "c",
     "ble_svc_gatt.h": "c",
-    "ble_gatt.h": "c"
+    "ble_gatt.h": "c",
+    "freertos.h": "c",
+    "app_main.h": "c"
   }
 }

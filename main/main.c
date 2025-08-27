@@ -11,6 +11,7 @@
 #include "use_wifi.h"
 #include "use_ble_server.h"
 #include "common.h"
+#include "app_main.h"
 
 static const char *TAG = "main";
 
@@ -24,18 +25,10 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // 初始化公共状态
-    common_init();
+    device_init();
     
     // 初始化并启动BLE服务器
-    ESP_LOGI(TAG, "初始化BLE服务器...");
-    esp_err_t ble_ret = use_ble_server_init();
-    if (ble_ret == ESP_OK) {
-        ESP_LOGI(TAG, "BLE服务器初始化成功");
-        use_ble_server_start();
-    } else {
-        ESP_LOGE(TAG, "BLE服务器初始化失败: %s", esp_err_to_name(ble_ret));
-    }
+    initialize_ble_server();
     
     // 启动WiFi和MQTT连接
     ESP_ERROR_CHECK(use_wifi_start());
@@ -45,61 +38,16 @@ void app_main(void)
     esp_err_t connect_result = use_wifi_wait_connected(0); // 永久等待
 
     if (connect_result == ESP_OK) {
-        ESP_LOGI(TAG, "连接成功！开始IoT数据传输");
+        ESP_LOGI(TAG, "连接成功！启动业务逻辑任务");
 
-        // 主循环 - 定期发送数据
+        // 启动APP主业务任务
+        ESP_ERROR_CHECK(app_main_start());
+        
+        ESP_LOGI(TAG, "系统初始化完成，业务逻辑任务已启动");
+        
+        // 主循环变为空闲循环，实际业务由app_main任务处理
         while (1) {
-            if (use_wifi_is_connected()) {
-                // 获取当前IOT状态
-                char current_device_status[32];
-                int32_t current_test_value;
-                get_current_iot_state(current_device_status, sizeof(current_device_status), &current_test_value);
-
-                
-                ESP_LOGI(TAG, "当前IOT状态 - device_status: %s, test_value: %ld, BLE: %s", 
-                         current_device_status, (long)current_test_value, 
-                         use_ble_server_is_connected() ? "已连接" : "未连接");
-                
-                // 显示BLE MTU信息（仅在连接时）
-                if (use_ble_server_is_connected()) {
-                    ESP_LOGI(TAG, "BLE MTU: %d 字节, 最大传输: %d 字节", 
-                             use_ble_server_get_mtu(), use_ble_server_get_max_data_len());
-                }
-                
-                // 根据设备状态执行相应操作
-                if (strcmp(current_device_status, "open") == 0) {
-                    ESP_LOGI(TAG, "设备处于开启状态，执行开启操作");
-                } else if (strcmp(current_device_status, "close") == 0) {
-                    ESP_LOGI(TAG, "设备处于关闭状态，执行关闭操作");
-                }
-
-                // 发送传感器数据（使用本地测试值）
-                esp_err_t result = tuya_publish_sensor_data(current_test_value, current_device_status);
-                if (result == ESP_OK) {
-                    ESP_LOGI(TAG, "传感器数据发送成功: test_value=%d°C, device_status=%s", 
-                             current_test_value, current_device_status);
-                } else {
-                    ESP_LOGW(TAG, "传感器数据发送失败");
-                }
-
-                // 简化版本：仅在BLE连接时发送测试数据（可选）
-                static int ble_send_counter = 0;
-                if (use_ble_server_is_connected() && (ble_send_counter % 5 == 0)) {  // 每50秒发送一次测试数据
-                    esp_err_t ble_result = use_ble_server_update_device_status(current_device_status, current_test_value);
-                    if (ble_result == ESP_OK) {
-                        ESP_LOGI(TAG, "BLE测试数据发送成功");
-                    }
-                }
-                ble_send_counter++;
-
-                // 模拟传感器数据变化
-                g_iot_state.test_value += 1;
-                if (g_iot_state.test_value > 50) g_iot_state.test_value = 10;
-            } else {
-                ESP_LOGW(TAG, "连接已断开，等待重连...");
-            }
-
-            vTaskDelay(10000 / portTICK_PERIOD_MS); // 10秒间隔
+            vTaskDelay(pdMS_TO_TICKS(60000)); // 60秒空闲延时
         }
     } else {
         ESP_LOGE(TAG, "连接失败，程序退出");

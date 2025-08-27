@@ -14,16 +14,10 @@ extern "C" {
 #endif
 
 /**
- * @brief 初始化 BLE 服务器
+ * @brief 初始化并启动BLE服务器
  * @return ESP_OK 成功，ESP_FAIL 失败
  */
-esp_err_t use_ble_server_init(void);
-
-/**
- * @brief 启动 BLE 服务器
- * @return ESP_OK 成功，ESP_FAIL 失败
- */
-esp_err_t use_ble_server_start(void);
+esp_err_t initialize_ble_server(void);
 
 /**
  * @brief 检查设备连接状态

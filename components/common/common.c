@@ -1,8 +1,10 @@
 #include "common.h"
 #include "esp_log.h"
 #include <string.h>
+#include <stdlib.h>
 
 static const char *TAG = "common";
+device_info_t *device_info;
 
 // 全局状态变量定义
 iot_device_state_t g_iot_state = {
@@ -10,19 +12,8 @@ iot_device_state_t g_iot_state = {
     .test_value = 0            // 默认值
 };
 
-/**
- * @brief 初始化全局状态
- */
-void common_init(void)
-{
-    // 设置默认状态
-    strncpy(g_iot_state.device_status, "close", sizeof(g_iot_state.device_status) - 1);
-    g_iot_state.device_status[sizeof(g_iot_state.device_status) - 1] = '\0';
-    g_iot_state.test_value = 10;
-    
-    ESP_LOGI(TAG, "全局状态初始化完成 - device_status: %s, test_value: %ld", 
-             g_iot_state.device_status, (long)g_iot_state.test_value);
-}
+// 统一消息队列
+QueueHandle_t g_msg_queue = NULL;
 
 /**
  * @brief 获取当前IOT设备状态
@@ -58,3 +49,20 @@ void set_test_value(int32_t test_value)
     g_iot_state.test_value = test_value;
     ESP_LOGI(TAG, "测试数值已更新: %ld", (long)g_iot_state.test_value);
 }
+
+
+//设置默认参数
+static void param_config_init(void)
+{
+    g_msg_queue = xQueueCreate(10, sizeof(g_msg_queue_t));
+
+}
+
+
+void device_init(void)
+{
+	param_config_init();
+	
+}
+
+
