@@ -25,6 +25,7 @@
     "ble_svc_gatt.h": "c",
     "ble_gatt.h": "c",
     "freertos.h": "c",
-    "app_main.h": "c"
+    "app_main.h": "c",
+    "esp_event.h": "c"
   }
 }

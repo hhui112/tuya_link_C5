@@ -24,8 +24,8 @@ extern "C" {
 
 
 /* WiFi配置 */
-#define WIFI_SSID               "kakakaka"
-#define WIFI_PASSWORD           "fzh990112"
+#define WIFI_SSID               "7788"
+#define WIFI_PASSWORD           "77885522"
 #define WIFI_MAXIMUM_RETRY      30
 
 /* 涂鸦IoT MQTT配置 */

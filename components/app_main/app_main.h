@@ -17,10 +17,10 @@ extern "C" {
 esp_err_t app_main_start(void);
 
 /**
- * @brief 停止APP主业务任务
+ * @brief 启动解耦的网络和时间服务
  * @return ESP_OK 成功，ESP_FAIL 失败
  */
-esp_err_t app_main_stop(void);
+esp_err_t system_services_start(void);
 
 #ifdef __cplusplus
 }

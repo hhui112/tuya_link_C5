@@ -52,8 +52,6 @@ static void print_received_data(void)
     if (received_len == 0) return;
     
     ESP_LOGI(TAG, "BLE data received length: %d bytes", received_len);
-    
-    /* 简化版本：全部当作字符串显示 */
     char text[513] = {0};
     int copy_len = (received_len < 512) ? received_len : 512;
     memcpy(text, received_data, copy_len);
