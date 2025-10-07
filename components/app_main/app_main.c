@@ -9,6 +9,7 @@
 #include "common.h"
 #include <string.h>
 #include <time.h>
+#include "cJSON.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -22,18 +23,34 @@ static bool ntp_ready = false;
 static bool mqtt_ready = false;
 
 
-void process_unified_message(const g_msg_queue_t* msg)
+void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
 {
     if (msg == NULL) return;
     
     const char* source_str = (msg->source == MSG_SOURCE_BLE) ? "BLE" : (msg->source == MSG_SOURCE_MQTT) ? "MQTT" : "UNKNOWN";
     
-    printf("收到%s消息 长度: %d\n", source_str, msg->data_len);
-    printf("消息内容: %.*s\n", msg->data_len, msg->data);
-    
-    // TODO: 在这里添加具体的消息处理业务逻辑
-    // 例如：JSON解析、命令执行、状态更新等
+    printf("收到 %s 消息，长度: %d\n", source_str, msg->data_len);
+
+    uint8_t data[64] = {0}; 
+    const char *cmd_str = (const char *)msg->data;  
+    uint8_t cmd_len = 0;
+
+    // 每2个字符转换为一个字节
+    while (*cmd_str && *(cmd_str + 1) && (cmd_len < sizeof(data))) {
+        char byte_str[3] = { cmd_str[0], cmd_str[1], '\0' };
+        data[cmd_len++] = (uint8_t)strtol(byte_str, NULL, 16);
+        cmd_str += 2;
+    }
+
+    if (data[0] == 0x0C) {
+        printf("需要通过串口发送: ");
+        for (int i = 0; i < cmd_len; i++) { printf("%02X ", data[i]);}
+        printf("\n");
+    }
+
+    // TODO: 在这里添加具体的消息处理逻辑
 }
+
 
 /**
  * @brief 消息处理任务（高优先级，立即响应）
@@ -46,7 +63,7 @@ static void message_task(void *pvParameters)
     while (1) {
         // 阻塞等待消息，立即处理
         if (xQueueReceive(g_msg_queue, &msg, portMAX_DELAY) == pdTRUE) {
-            process_unified_message(&msg);
+            mqtt_ble_data_parser_cb(&msg);
         }
     }
     vTaskDelete(NULL);
@@ -112,6 +129,10 @@ static void ntp_status_callback(ntp_manager_event_t event, void *event_data)
 
 static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
 {
+    cJSON *root;
+    cJSON *secondItem;
+    cJSON *mccil_item;
+
     switch (event) {
         case MQTT_MANAGER_EVENT_CONNECTED:
             mqtt_ready = true;
@@ -135,19 +156,47 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
             break;
             
         case MQTT_MANAGER_EVENT_DATA_RECEIVED:
+        {
+            mqtt_manager_data_t *data = (mqtt_manager_data_t *)event_data;
+            ESP_LOGI(TAG, "收到MQTT消息: %.*s", data->data_len, data->data);
+
+            root = cJSON_ParseWithLength(data->data, data->data_len);
+            if (root)
             {
-                mqtt_manager_data_t *data = (mqtt_manager_data_t *)event_data;
-                ESP_LOGI(TAG, "收到MQTT消息: %.*s", data->data_len, data->data);
-                
-                // 将MQTT消息转发到统一消息队列
-                g_msg_queue_t msg = {
-                    .source = MSG_SOURCE_MQTT,
-                    .data_len = (data->data_len < MAX_MSG_SIZE) ? data->data_len : MAX_MSG_SIZE,
-                };
-                memcpy(msg.data, data->data, msg.data_len);
-                xQueueSend(g_msg_queue, &msg, portMAX_DELAY);
+                secondItem = cJSON_GetObjectItem(root, "data");
+                if (cJSON_IsObject(secondItem))
+                {
+                    mccil_item = cJSON_GetObjectItem(secondItem, "mccil");
+                    if (cJSON_IsString(mccil_item) && (mccil_item->valuestring != NULL))
+                    {
+                        size_t mccil_len = strlen(mccil_item->valuestring);
+                        ESP_LOGI(TAG, "解析到 mccil: %s, length: %u", mccil_item->valuestring, (unsigned)mccil_len);
+
+                        g_msg_queue_t msg = {
+                            .source = MSG_SOURCE_MQTT,
+                            .data_len = (mccil_len < MAX_MSG_SIZE) ? mccil_len : MAX_MSG_SIZE,
+                        };
+                        memcpy(msg.data, mccil_item->valuestring, msg.data_len);
+                        xQueueSend(g_msg_queue, &msg, portMAX_DELAY);
+                    }
+                    else
+                    {
+                        ESP_LOGW(TAG, "mccil 字段不存在或类型错误");
+                    }
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "data 对象不存在或类型错误");
+                }
+                cJSON_Delete(root);
             }
-            break;
+            else
+            {
+                ESP_LOGW(TAG, "JSON 解析失败");
+            }
+        }
+        break;
+
     }
 }
 

@@ -35,7 +35,6 @@ void app_main(void)
     // 启动APP主业务任务
     ESP_ERROR_CHECK(app_main_start());
     
-    ESP_LOGI(TAG, "系统初始化完成，解耦架构已启动");
     
     // 主循环变为空闲循环，实际业务由各个管理器和app_main任务处理
     while (1) {

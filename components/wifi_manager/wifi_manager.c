@@ -16,7 +16,6 @@ static bool is_initialized = false;
 
 #define WIFI_CONNECTED_BIT  (1UL << 0)
 #define WIFI_FAIL_BIT       (1UL << 1)
-#define WIFI_MAXIMUM_RETRY  5
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {

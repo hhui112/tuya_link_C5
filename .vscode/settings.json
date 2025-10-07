@@ -26,6 +26,8 @@
     "ble_gatt.h": "c",
     "freertos.h": "c",
     "app_main.h": "c",
-    "esp_event.h": "c"
+    "esp_event.h": "c",
+    "esp_partition.h": "c",
+    "esp_mac.h": "c"
   }
 }

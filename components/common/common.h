@@ -30,9 +30,9 @@ extern "C" {
 
 /* 涂鸦IoT MQTT配置 */
 #define TUYA_PRODUCT_ID         "owes0z4baov2vqgx"
-#define TUYA_MQTT_URL           "mqtts://m1.tuyacn.com:8883"
 #define TUYA_DEVICE_ID          "2631a16994c01c1f45qfha"
 #define TUYA_DEVICE_SECRET      "ecw9VrT7fLlgP6br"
+#define TUYA_MQTT_URL           "mqtts://m1.tuyacn.com:8883"
 
 /* BLE配置 */
 #define BLE_SERVICE_UUID        0x00FF
@@ -50,7 +50,8 @@ extern "C" {
 /* 消息来源枚举 */
 typedef enum {
     MSG_SOURCE_BLE = 1,
-    MSG_SOURCE_MQTT = 2
+    MSG_SOURCE_MQTT = 2,
+    MSG_SOURCE_WIFI = 3
 } msg_source_t;
 
 /* 统一消息结构体 */
@@ -60,6 +61,13 @@ typedef struct {
     uint16_t data_len;              // 数据长度
     uint8_t data[MAX_MSG_SIZE];     // 消息内容
 } g_msg_queue_t;
+
+typedef struct
+{
+    char product_id[20];
+    char device_id[20];
+    char device_secret[20];
+} tuya_config_t;
 
 // IOT设备状态结构体
 typedef struct {
@@ -88,14 +96,34 @@ typedef struct
 typedef struct
 {
     bool flag;
-    QueueHandle_t xQueue;
     data_rec_t data_rec;
+
 }mqtt_link_info_t;
 
+
+//wifi信息定义
+typedef struct
+{        
+    uint8_t flag;               // wifi连接标志位
+    char ip_addr[16];           // ip地址
+    int rssi;                   // wifi信号强度
+    char ssid[64];              // wifi名
+    char passwd[64];            // wifi密码                                               
+}wifi_link_info_t;
+
+typedef struct
+{
+    char product_id[30];
+    char device_id[30];
+    char device_secret[30];
+
+}tuya_link_info_t;
+
 typedef struct {
-    char id[20];
+    char id[30];
     ble_link_info_t *ble;
-    mqtt_link_info_t *mqtt;
+    tuya_link_info_t tuya;
+    wifi_link_info_t wifi;
 } device_info_t;
 
 
@@ -110,6 +138,11 @@ extern QueueHandle_t g_msg_queue;
  * @brief 初始化全局状态
  */
 void device_init(void);
+
+/**
+ * @brief 配置存储到Flash
+ */
+void config_store_to_flash(void);
 
 /**
  * @brief 获取当前IOT设备状态
