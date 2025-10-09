@@ -10,6 +10,7 @@
 #include <string.h>
 #include <time.h>
 #include "cJSON.h"
+#include "use_uart.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -25,30 +26,55 @@ static bool mqtt_ready = false;
 
 void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
 {
-    if (msg == NULL) return;
+    // 参数校验
+    if (msg == NULL || msg->data_len == 0) {
+        ESP_LOGW(TAG, "收到无效消息");
+        return;
+    }
     
-    const char* source_str = (msg->source == MSG_SOURCE_BLE) ? "BLE" : (msg->source == MSG_SOURCE_MQTT) ? "MQTT" : "UNKNOWN";
+    const char* source_str = (msg->source == MSG_SOURCE_BLE) ? "BLE" : 
+                             (msg->source == MSG_SOURCE_MQTT) ? "MQTT" : "UNKNOWN";
     
-    printf("收到 %s 消息，长度: %d\n", source_str, msg->data_len);
+    ESP_LOGI(TAG, "收到 %s 消息，长度: %d", source_str, msg->data_len);
 
+    // 十六进制字符串转字节数组
     uint8_t data[64] = {0}; 
     const char *cmd_str = (const char *)msg->data;  
     uint8_t cmd_len = 0;
 
     // 每2个字符转换为一个字节
     while (*cmd_str && *(cmd_str + 1) && (cmd_len < sizeof(data))) {
+        // 检查是否为有效的十六进制字符
+        if (!((cmd_str[0] >= '0' && cmd_str[0] <= '9') || (cmd_str[0] >= 'A' && cmd_str[0] <= 'F') || (cmd_str[0] >= 'a' && cmd_str[0] <= 'f')) ||
+            !((cmd_str[1] >= '0' && cmd_str[1] <= '9') || (cmd_str[1] >= 'A' && cmd_str[1] <= 'F') || (cmd_str[1] >= 'a' && cmd_str[1] <= 'f'))) {
+            ESP_LOGW(TAG, "遇到非法十六进制字符，停止转换");
+            break;
+        }
+        
         char byte_str[3] = { cmd_str[0], cmd_str[1], '\0' };
         data[cmd_len++] = (uint8_t)strtol(byte_str, NULL, 16);
         cmd_str += 2;
     }
 
-    if (data[0] == 0x0C) {
-        printf("需要通过串口发送: ");
-        for (int i = 0; i < cmd_len; i++) { printf("%02X ", data[i]);}
-        printf("\n");
+    // 校验转换结果
+    if (cmd_len == 0) {
+        ESP_LOGW(TAG, "数据转换失败，长度为0");
+        return;
     }
 
-    // TODO: 在这里添加具体的消息处理逻辑
+    // 根据命令类型处理
+    if (data[0] == 0x0C) {
+        ESP_LOGI(TAG, "识别到 0x0C 命令，准备通过串口发送 %d 字节", cmd_len);
+        
+        // 打印十六进制数据
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, data, cmd_len, ESP_LOG_INFO);
+        
+        // 通过UART1发送数据
+        uart_send_data(data, cmd_len);
+        ESP_LOGI(TAG, "已通过UART1发送完成");
+    } else {
+        ESP_LOGW(TAG, "未识别的命令类型: 0x%02X，已忽略", data[0]);
+    }
 }
 
 
@@ -228,6 +254,9 @@ esp_err_t app_main_start(void)
 
     BaseType_t ret2 = xTaskCreate(iot_task, "iot_task", 1024*2, NULL, 5, &iot_task_handle);
     if (ret2 != pdPASS) {ESP_LOGE(TAG, "创建IoT业务任务失败");return ESP_FAIL;}
+
+    BaseType_t ret3 = start_uart_receive_task();
+    if (ret3 != pdPASS) {ESP_LOGE(TAG, "创建uart业务任务失败");return ESP_FAIL;}
 
     return ESP_OK;
 }

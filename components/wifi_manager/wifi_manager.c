@@ -34,6 +34,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 status_callback(WIFI_MANAGER_EVENT_DISCONNECTED, NULL);
             }
             // 重置重试计数，准备下次重连(需要重启吗？)
+            esp_restart();
             retry_count = 0;
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
