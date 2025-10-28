@@ -54,10 +54,18 @@ typedef enum {
     MSG_SOURCE_WIFI = 3
 } msg_source_t;
 
+/* 消息类型枚举 */
+typedef enum {
+    MSG_TYPE_CONTROL = 0,       // 控制指令（MQTT/BLE通用）
+    MSG_TYPE_BLE_CONFIG = 1,    // BLE配网数据
+    MSG_TYPE_STATUS = 2         // 状态上报（预留）
+} msg_type_t;
+
 /* 统一消息结构体 */
 #define MAX_MSG_SIZE 256
 typedef struct {
     msg_source_t source;            // 消息来源
+    msg_type_t type;                // 消息类型
     uint16_t data_len;              // 数据长度
     uint8_t data[MAX_MSG_SIZE];     // 消息内容
 } g_msg_queue_t;
@@ -108,7 +116,7 @@ typedef struct
     char ip_addr[16];           // ip地址
     int rssi;                   // wifi信号强度
     char ssid[64];              // wifi名
-    char passwd[64];            // wifi密码                                               
+    char passwd[64];            // wifi密码
 }wifi_link_info_t;
 
 typedef struct
@@ -124,6 +132,7 @@ typedef struct {
     ble_link_info_t *ble;
     tuya_link_info_t tuya;
     wifi_link_info_t wifi;
+    wifi_link_info_t renet_wifi;
 } device_info_t;
 
 
@@ -143,6 +152,11 @@ void device_init(void);
  * @brief 配置存储到Flash
  */
 void config_store_to_flash(void);
+
+/**
+ * @brief 配网成功后将 ssid 和 password 配置存储到Flash
+ */
+void wifi_config_store_to_flash(void);
 
 /**
  * @brief 获取当前IOT设备状态

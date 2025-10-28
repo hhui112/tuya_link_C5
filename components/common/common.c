@@ -141,6 +141,37 @@ void config_store_to_flash(void)
     nvs_close(nvs_config_handler);
 }
 
+void wifi_config_store_to_flash(void)
+{
+    // 检查device_info是否已正确初始化
+    if (device_info == NULL) {
+        ESP_LOGE(TAG, "device_info 未初始化，无法保存配置");
+        return;
+    }
+    
+    char out_value[64] = {0};
+    size_t len = sizeof(out_value);
+    nvs_handle_t nvs_config_handler;
+    
+    // 打开 NVS 句柄
+    esp_err_t ret = nvs_open("config_cfg", NVS_READWRITE, &nvs_config_handler);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "打开NVS失败: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "wifiSsid", device_info->wifi.ssid));
+    ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "wifiPasswd", device_info->wifi.passwd));
+    ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "configFlag", "ok"));
+    ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));
+    ESP_LOGI(TAG, "wifiSsid: %s, wifiPasswd: %s", device_info->wifi.ssid, device_info->wifi.passwd);
+    printf("----------------ssid/password saved to flash oK----------------------\n");
+
+    // 提交配置
+    ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));
+    nvs_close(nvs_config_handler);
+}
+
 void device_init(void)
 {
     // 初始化 NVS

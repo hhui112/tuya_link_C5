@@ -88,17 +88,19 @@ static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         ble_hs_mbuf_to_flat(ctxt->om, received_data, sizeof(received_data), &received_len);
         
         // 准备统一消息结构
-        g_msg_queue_t msg;
-        msg.source = MSG_SOURCE_BLE;
-        msg.data_len = (received_len < MAX_MSG_SIZE) ? received_len : MAX_MSG_SIZE;
+        g_msg_queue_t msg = {
+            .source = MSG_SOURCE_BLE,
+            .type = MSG_TYPE_CONTROL,  // 默认为控制指令，后续由统一处理函数判断
+            .data_len = (received_len < MAX_MSG_SIZE) ? received_len : MAX_MSG_SIZE
+        };
         memcpy(msg.data, received_data, msg.data_len);
         
         // 发送到统一消息队列
         BaseType_t xStatus = xQueueSend(g_msg_queue, &msg, 0);
         if (xStatus == pdPASS) {
-            ESP_LOGI(TAG, "BLE消息已发送到统一队列: %d字节", msg.data_len);
+            ESP_LOGI(TAG, "BLE消息已入队 (%d字节)", msg.data_len);
         } else {
-            ESP_LOGW(TAG, "统一消息队列已满，直接处理数据");
+            ESP_LOGW(TAG, "消息队列已满");
             print_received_data();  // 作为备用处理
         }
         
