@@ -24,6 +24,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // 初始化任务看门狗（在创建任务之前）
+    ESP_ERROR_CHECK(watchdog_init());
+
     device_init();
     
     // 初始化并启动BLE服务器
@@ -33,11 +36,7 @@ void app_main(void)
     ESP_ERROR_CHECK(system_services_start());
 
     // 启动APP主业务任务
-    ESP_ERROR_CHECK(app_main_start());
-    
-    
-    // 主循环变为空闲循环，实际业务由各个管理器和app_main任务处理
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(60000)); // 60秒空闲延时
-    }
+    ESP_ERROR_CHECK(app_main_start());    
+    // app_main()函数退出，main任务结束，释放栈空间
+    // 所有业务逻辑由独立的任务（msg_task, iot_task, uart_receive等）处理
 }

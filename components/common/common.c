@@ -11,14 +11,6 @@
 static const char *TAG = "common";
 device_info_t *device_info;
 tuya_config_t tuya_config;
-
-// 全局状态变量定义
-iot_device_state_t g_iot_state = {
-    .device_status = "close",  // 默认值
-    .test_value = 0            // 默认值
-};
-
-// 统一消息队列
 QueueHandle_t g_msg_queue = NULL;
 
 static void read_tuya_config(void)
@@ -96,6 +88,21 @@ static void param_config_init(void)
     
     strncpy(device_info->wifi.passwd, WIFI_PASSWORD, sizeof(device_info->wifi.passwd) - 1);
     device_info->wifi.passwd[sizeof(device_info->wifi.passwd) - 1] = '\0';
+
+    // 读取设备MAC地址（用于UART通信）
+    esp_err_t ret = esp_read_mac(device_info->device_mac, ESP_MAC_WIFI_STA);  // 读取 STA 模式 MAC 地址
+
+    if (ret == ESP_OK) {
+    ESP_LOGI(TAG, "STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+             device_info->device_mac[0], device_info->device_mac[1], device_info->device_mac[2], 
+             device_info->device_mac[3], device_info->device_mac[4], device_info->device_mac[5]);
+    } else {
+        ESP_LOGE(TAG, "读取MAC地址失败: %s", esp_err_to_name(ret));
+        // 使用默认MAC地址
+        uint8_t default_mac[6] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
+        memcpy(device_info->device_mac, default_mac, 6);
+        ESP_LOGW(TAG, "使用默认MAC地址");
+    }
 }
 
 void config_store_to_flash(void)
@@ -174,68 +181,10 @@ void wifi_config_store_to_flash(void)
 
 void device_init(void)
 {
-    // 初始化 NVS
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
+    // NVS已在main.c中初始化，这里不需要重复初始化
+    
     // 初始化设备参数和配置
     param_config_init();
     config_store_to_flash();
-
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);  // 读取 STA 模式 MAC 地址
-
-    printf("STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-/**
- * @brief 获取当前IOT设备状态
- */
-void get_current_iot_state(char* device_status, size_t status_size, int32_t* test_value)
-{
-    if (device_status && status_size > 0) {
-        strncpy(device_status, g_iot_state.device_status, status_size - 1);
-        device_status[status_size - 1] = '\0';
-    }
-    if (test_value) {
-        *test_value = g_iot_state.test_value;
-    }
-}
-
-/**
- * @brief 更新设备状态
- */
-void set_device_status(const char* device_status)
-{
-    if (device_status) {
-        strncpy(g_iot_state.device_status, device_status, sizeof(g_iot_state.device_status) - 1);
-        g_iot_state.device_status[sizeof(g_iot_state.device_status) - 1] = '\0';
-        ESP_LOGI(TAG, "设备状态已更新: %s", g_iot_state.device_status);
-    }
-}
-
-/**
- * @brief 更新测试数值
- */
-void set_test_value(int32_t test_value)
-{
-    g_iot_state.test_value = test_value;
-    ESP_LOGI(TAG, "测试数值已更新: %ld", (long)g_iot_state.test_value);
 }
 

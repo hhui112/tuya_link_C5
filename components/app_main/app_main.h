@@ -22,6 +22,12 @@ esp_err_t app_main_start(void);
  */
 esp_err_t system_services_start(void);
 
+/**
+ * @brief 初始化任务看门狗
+ * @return ESP_OK 成功，ESP_FAIL 失败
+ */
+esp_err_t watchdog_init(void);
+
 #ifdef __cplusplus
 }
 #endif

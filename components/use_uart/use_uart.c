@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "esp_log.h"
+#include "esp_task_wdt.h"
 #include "use_uart.h"
 
 static const char *TAG = "uart";
@@ -327,6 +328,9 @@ static void uart_DataReceive_task(void *arg)
         .source_clk = UART_SCLK_XTAL,                   // ESP32-C5使用晶振时钟源
     };
     uart_event_t event;
+    
+    // 订阅任务看门狗
+    esp_task_wdt_add(NULL);
 
     // 配置UART驱动
     ESP_LOGI(TAG, "初始化UART%d (TX:GPIO%d, RX:GPIO%d, 波特率:%d)", 
@@ -375,8 +379,11 @@ static void uart_DataReceive_task(void *arg)
     
     while (1)
     {
-        // 等待UART事件
-        if (xQueueReceive(uart1_queue, (void *)&event, (TickType_t)portMAX_DELAY)) 
+        // 喂狗：告诉看门狗任务还活着
+        esp_task_wdt_reset();
+        
+        // 等待UART事件（使用超时避免看门狗超时）
+        if (xQueueReceive(uart1_queue, (void *)&event, (TickType_t)pdMS_TO_TICKS(10000))) 
         {
             switch (event.type)
             {
@@ -452,6 +459,198 @@ static void uart_DataReceive_task(void *arg)
 bool uart_is_initialized(void)
 {
     return uart_initialized;
+}
+
+/**
+ * @brief 发送键值帧（APP >> 设备）
+ * @param mac_addr 目标设备MAC地址（6字节）
+ * @param key_value 键值（参考KEY_VALUE_xxx宏定义）
+ * @return ESP_OK: 成功, ESP_FAIL: 失败
+ */
+esp_err_t uart_send_key_frame(const uint8_t *mac_addr, uint16_t key_value)
+{
+    // 参数校验
+    if (mac_addr == NULL) {
+        ESP_LOGE(TAG, "MAC地址为空");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // 检查UART是否已初始化
+    if (!uart_initialized) {
+        ESP_LOGE(TAG, "UART未初始化，无法发送键值帧");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // 构建键值帧
+    key_frame_cmd_t frame = {
+        .length = 0x0C,
+        .type = FRAME_TYPE_KEY_CMD,
+        .key_value = key_value,    // 结构体会自动按小端序存储
+        .reserved = 0x0000
+    };
+    
+    // 复制MAC地址
+    memcpy(frame.mac_addr, mac_addr, 6);
+    
+    // 打印发送信息
+    ESP_LOGI(TAG, "发送键值帧: MAC=%02X:%02X:%02X:%02X:%02X:%02X, 键值=0x%04X",
+             mac_addr[0], mac_addr[1], mac_addr[2], 
+             mac_addr[3], mac_addr[4], mac_addr[5], 
+             key_value);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, &frame, sizeof(frame), ESP_LOG_INFO);
+    
+    // 发送数据
+    uart_send_data((uint8_t*)&frame, sizeof(frame));
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief 发送指令帧（APP >> 设备）
+ * @param mac_addr 目标设备MAC地址（6字节）
+ * @param command 指令（参考CMD_xxx宏定义）
+ * @return ESP_OK: 成功, ESP_FAIL: 失败
+ */
+esp_err_t uart_send_cmd_frame(const uint8_t *mac_addr, uint16_t command)
+{
+    // 参数校验
+    if (mac_addr == NULL) {
+        ESP_LOGE(TAG, "MAC地址为空");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // 检查UART是否已初始化
+    if (!uart_initialized) {
+        ESP_LOGE(TAG, "UART未初始化，无法发送指令帧");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // 构建指令帧
+    cmd_frame_cmd_t frame = {
+        .length = 0x0C,
+        .type = FRAME_TYPE_CMD_CMD,
+        .command = command,        // 结构体会自动按小端序存储
+        .reserved = 0x0000
+    };
+    
+    // 复制MAC地址
+    memcpy(frame.mac_addr, mac_addr, 6);
+    
+    // 打印发送信息
+    ESP_LOGI(TAG, "发送指令帧: MAC=%02X:%02X:%02X:%02X:%02X:%02X, 指令=0x%04X",
+             mac_addr[0], mac_addr[1], mac_addr[2], 
+             mac_addr[3], mac_addr[4], mac_addr[5], 
+             command);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, &frame, sizeof(frame), ESP_LOG_INFO);
+    
+    // 发送数据
+    uart_send_data((uint8_t*)&frame, sizeof(frame));
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief 获取寄存器名称（已在前面定义，用于读写日志）
+ */
+// 已在parse相关函数前面定义
+
+/**
+ * @brief 发送读寄存器帧（APP >> 设备）
+ * @param mac_addr 目标设备MAC地址（6字节）
+ * @param reg_addr 寄存器地址（参考REG_xxx宏定义）
+ * @return ESP_OK: 成功, ESP_FAIL: 失败
+ */
+esp_err_t uart_send_read_register(const uint8_t *mac_addr, uint8_t reg_addr)
+{
+    // 参数校验
+    if (mac_addr == NULL) {
+        ESP_LOGE(TAG, "MAC地址为空");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // 检查UART是否已初始化
+    if (!uart_initialized) {
+        ESP_LOGE(TAG, "UART未初始化，无法发送读寄存器帧");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // 构建读寄存器帧
+    read_register_cmd_t frame = {
+        .length = 0x0C,
+        .type = FRAME_TYPE_READ_CMD,
+        .reg_addr = reg_addr,
+        .value = 0x00,
+        .max_value = 0x00,
+        .min_value = 0x00
+    };
+    
+    // 复制MAC地址
+    memcpy(frame.mac_addr, mac_addr, 6);
+    
+    // 获取寄存器名称（用于日志）
+    const char *reg_name = get_register_name(reg_addr);
+    
+    // 打印发送信息
+    ESP_LOGI(TAG, "发送读寄存器帧: MAC=%02X:%02X:%02X:%02X:%02X:%02X, 寄存器=0x%02X (%s)",
+             mac_addr[0], mac_addr[1], mac_addr[2], 
+             mac_addr[3], mac_addr[4], mac_addr[5], 
+             reg_addr, reg_name);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, &frame, sizeof(frame), ESP_LOG_INFO);
+    
+    // 发送数据
+    uart_send_data((uint8_t*)&frame, sizeof(frame));
+    
+    return ESP_OK;
+}
+
+/**
+ * @brief 发送写寄存器帧（APP >> 设备）
+ * @param mac_addr 目标设备MAC地址（6字节）
+ * @param reg_addr 寄存器地址（参考REG_xxx宏定义）
+ * @param value 写入值
+ * @return ESP_OK: 成功, ESP_FAIL: 失败
+ */
+esp_err_t uart_send_write_register(const uint8_t *mac_addr, uint8_t reg_addr, uint8_t value)
+{
+    // 参数校验
+    if (mac_addr == NULL) {
+        ESP_LOGE(TAG, "MAC地址为空");
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // 检查UART是否已初始化
+    if (!uart_initialized) {
+        ESP_LOGE(TAG, "UART未初始化，无法发送写寄存器帧");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // 构建写寄存器帧
+    write_register_cmd_t frame = {
+        .length = 0x0C,
+        .type = FRAME_TYPE_WRITE_CMD,
+        .reg_addr = reg_addr,
+        .value = value,
+        .max_value = 0x00,
+        .min_value = 0x00
+    };
+    
+    // 复制MAC地址
+    memcpy(frame.mac_addr, mac_addr, 6);
+    
+    // 获取寄存器名称（用于日志）
+    const char *reg_name = get_register_name(reg_addr);
+    
+    // 打印发送信息
+    ESP_LOGI(TAG, "发送写寄存器帧: MAC=%02X:%02X:%02X:%02X:%02X:%02X, 寄存器=0x%02X (%s), 值=%d",
+             mac_addr[0], mac_addr[1], mac_addr[2], 
+             mac_addr[3], mac_addr[4], mac_addr[5], 
+             reg_addr, reg_name, value);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, &frame, sizeof(frame), ESP_LOG_INFO);
+    
+    // 发送数据
+    uart_send_data((uint8_t*)&frame, sizeof(frame));
+    
+    return ESP_OK;
 }
 
 /**

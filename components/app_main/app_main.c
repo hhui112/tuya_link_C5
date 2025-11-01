@@ -3,6 +3,8 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_task_wdt.h"
+#include "esp_mac.h"
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 #include "utctime.h"
@@ -15,14 +17,19 @@
 
 static const char *TAG = "APP_MAIN";
 
+/* 看门狗配置 */
+#define WATCHDOG_TIMEOUT_SEC    30  // 看门狗超时时间（秒）
+
 /* 任务句柄 */
 static TaskHandle_t message_task_handle = NULL;
-static TaskHandle_t iot_task_handle = NULL;
 
 /* 系统状态 */
 static bool wifi_ready = false;
 static bool ntp_ready = false;
 static bool mqtt_ready = false;
+
+/* 设备MAC地址（从硬件读取） */
+static uint8_t device_mac[6] = {0};
 
 /* ========== 消息处理框架 ========== */
 
@@ -155,28 +162,50 @@ static void handle_mqtt_control_data(cJSON *data_obj)
         ESP_LOGI(TAG, "   mccil: %s", mccil_item->valuestring);
     }
     
-    // 提取其他字段（框架层面只打印，具体业务由实际需求决定）
-    cJSON *device_status = cJSON_GetObjectItem(data_obj, "device_status");
-    if (device_status && cJSON_IsString(device_status)) {
-        ESP_LOGI(TAG, "   device_status: %s", device_status->valuestring);
-    }
-    
-    cJSON *control = cJSON_GetObjectItem(data_obj, "control");
-    if (control && cJSON_IsString(control)) {
-        ESP_LOGI(TAG, "   control: %s", control->valuestring);
-    }
-    
+    // 处理开门/上升指令
     cJSON *up = cJSON_GetObjectItem(data_obj, "up");
-    if (up && cJSON_IsString(up)) {
-        ESP_LOGI(TAG, "   up: %s", up->valuestring);
+    if (up && cJSON_IsBool(up)) {
+        bool up_value = cJSON_IsTrue(up);
+        if (up_value) {
+            uart_send_cmd_frame(device_info->device_mac, CMD_OPEN_DOOR);
+            ESP_LOGI(TAG, "   开门/上升: true");
+        }
     }
     
-    cJSON *type = cJSON_GetObjectItem(data_obj, "type");
-    if (type && cJSON_IsNumber(type)) {
-        ESP_LOGI(TAG, "   type: %d", type->valueint);
+    // 处理关门/下降指令
+    cJSON *down = cJSON_GetObjectItem(data_obj, "down");
+    if (down && cJSON_IsBool(down)) {
+        bool down_value = cJSON_IsTrue(down);
+        if (down_value) {
+            uart_send_cmd_frame(device_info->device_mac, CMD_CLOSE_DOOR);
+            ESP_LOGI(TAG, "   关门/下降: true");
+        }
     }
     
-    // TODO: 这里添加具体的业务处理逻辑
+    // 处理通风开关
+    cJSON *switch_item = cJSON_GetObjectItem(data_obj, "switch");
+    if (switch_item && cJSON_IsBool(switch_item)) {
+        bool switch_value = cJSON_IsTrue(switch_item);
+        if (switch_value) {
+            uart_send_cmd_frame(device_info->device_mac, KEY_VALUE_VENT);
+            ESP_LOGI(TAG, "   通风功能: true");
+        }
+    }
+    
+    // 处理童锁（写寄存器，0关闭/1开启）
+    cJSON *child_lock = cJSON_GetObjectItem(data_obj, "child_lock");
+    if (child_lock && cJSON_IsBool(child_lock)) {
+        uint8_t lock_value = cJSON_IsTrue(child_lock) ? 1 : 0;
+        uart_send_write_register(device_info->device_mac, REG_CHILD_LOCK, lock_value);
+        ESP_LOGI(TAG, "   童锁功能: %s", lock_value ? "开启" : "关闭");
+    }
+    
+    // 处理遇阻反弹级别
+    cJSON *collision_level = cJSON_GetObjectItem(data_obj, "reg_collision_level");
+    if (collision_level && cJSON_IsNumber(collision_level)) {
+        uart_send_write_register(device_info->device_mac, REG_OPEN_FORCE, collision_level->valueint);
+        ESP_LOGI(TAG, "   遇阻反弹级别: %d", collision_level->valueint);
+    }
 }
 
 /**
@@ -193,6 +222,7 @@ static void handle_mqtt_message(cJSON *root)
         return;
     }
     
+    // 调用统一的控制数据处理函数
     handle_mqtt_control_data(data_obj);
 }
 
@@ -259,30 +289,19 @@ static void message_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "APP业务任务已启动");
     
+    // 订阅任务看门狗
+    esp_task_wdt_add(NULL);
+    ESP_LOGI(TAG, "消息处理任务已订阅看门狗");
+    
     g_msg_queue_t msg; 
     while (1) {
-        // 阻塞等待消息，立即处理
-        if (xQueueReceive(g_msg_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        // 喂狗：告诉看门狗任务还活着
+        esp_task_wdt_reset();
+        
+        // 阻塞等待消息，使用超时而不是永久等待（避免看门狗超时）
+        if (xQueueReceive(g_msg_queue, &msg, pdMS_TO_TICKS(10000)) == pdTRUE) {
             mqtt_ble_data_parser_cb(&msg);
         }
-    }
-    vTaskDelete(NULL);
-}
-
-/**
- * @brief IoT业务任务（独立运行，定期处理）
- */
-static void iot_task(void *pvParameters)
-{
-    ESP_LOGI(TAG, "IoT业务任务已启动");
-    
-    while (1) {
-
-        
-        ESP_LOGI(TAG, "📋 执行定期业务逻辑...");
-        
-        // 任务延时（可根据需要调整）
-        vTaskDelay(pdMS_TO_TICKS(20000));  // 10秒
     }
     vTaskDelete(NULL);
 }
@@ -416,6 +435,30 @@ esp_err_t system_services_start(void)
 }
 
 /**
+ * @brief 初始化任务看门狗
+ */
+esp_err_t watchdog_init(void)
+{
+    ESP_LOGI(TAG, "🐕 初始化任务看门狗 (超时: %d秒)", WATCHDOG_TIMEOUT_SEC);
+    
+    // 配置任务看门狗
+    esp_task_wdt_config_t twdt_config = {
+        .timeout_ms = WATCHDOG_TIMEOUT_SEC * 1000,  // 超时时间（毫秒）
+        .idle_core_mask = 0,                         // 不监控空闲任务
+        .trigger_panic = true                        // 超时时触发panic重启
+    };
+    
+    esp_err_t ret = esp_task_wdt_init(&twdt_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "任务看门狗初始化失败: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    ESP_LOGI(TAG, "✅ 任务看门狗初始化成功");
+    return ESP_OK;
+}
+
+/**
  * @brief 启动APP主业务任务
  */
 esp_err_t app_main_start(void)
@@ -423,8 +466,9 @@ esp_err_t app_main_start(void)
     BaseType_t ret1 = xTaskCreate(message_task, "msg_task", 1024*6, NULL, 6, &message_task_handle);
     if (ret1 != pdPASS) { ESP_LOGE(TAG, "创建消息处理任务失败");return ESP_FAIL;}
 
-    BaseType_t ret2 = xTaskCreate(iot_task, "iot_task", 1024*2, NULL, 5, &iot_task_handle);
-    if (ret2 != pdPASS) {ESP_LOGE(TAG, "创建IoT业务任务失败");return ESP_FAIL;}
+    // 暂时无该任务 先注释掉
+    // BaseType_t ret2 = xTaskCreate(iot_task, "iot_task", 1024*2, NULL, 5, &iot_task_handle);
+    // if (ret2 != pdPASS) {ESP_LOGE(TAG, "创建IoT业务任务失败");return ESP_FAIL;}
 
     BaseType_t ret3 = start_uart_receive_task();
     if (ret3 != pdPASS) {ESP_LOGE(TAG, "创建uart业务任务失败");return ESP_FAIL;}

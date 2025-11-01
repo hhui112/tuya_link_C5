@@ -3581,3 +3581,101 @@ Total use time: 9 s
 Download result: PASS
 *************************** END ****************************
 
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20251101-10:53
+Connect baud: 115200
+Com:COM4
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20251101-10:53
+Connect baud: 115200
+Com:COM14
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 131072 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 1.4 seconds (effective 125.6 kbit/s)...
+Wrote 3072 bytes (156 compressed) at 0x00008000 in 0.0 seconds (effective 530.0 kbit/s)...
+Wrote 1397216 bytes (803955 compressed) at 0x00020000 in 71.7 seconds (effective 155.8 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: 0256c4619ea88bb7274cdd24da5ce198
+Flash md5: 0256c4619ea88bb7274cdd24da5ce198
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 66569ab8a718d757e7202e469e41819f
+Flash md5: 66569ab8a718d757e7202e469e41819f
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: 6e29cda096a09490c9d72ee271357b56
+Flash md5: 6e29cda096a09490c9d72ee271357b56
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 78 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20251101-11:01
+Connect baud: 115200
+Com:COM14
+serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20251101-11:01
+Connect baud: 115200
+Com:COM14
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+com closed
+Total use time: 5 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20251101-11:02
+Connect baud: 115200
+Com:COM14
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 131072 D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+Wrote 21888 bytes (13437 compressed) at 0x00002000 in 1.3 seconds (effective 136.7 kbit/s)...
+Wrote 3072 bytes (156 compressed) at 0x00008000 in 0.0 seconds (effective 824.6 kbit/s)...
+Wrote 1396688 bytes (803744 compressed) at 0x00020000 in 71.6 seconds (effective 156.2 kbit/s)...
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: 0256c4619ea88bb7274cdd24da5ce198
+Flash md5: 0256c4619ea88bb7274cdd24da5ce198
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 66569ab8a718d757e7202e469e41819f
+Flash md5: 66569ab8a718d757e7202e469e41819f
+Hash of data verified.
+File: D:\soft\vscode\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: 1dfe0a51f8ed1766eda52132d0cddaa3
+Flash md5: 1dfe0a51f8ed1766eda52132d0cddaa3
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 78 s
+Download result: PASS
+*************************** END ****************************
+
