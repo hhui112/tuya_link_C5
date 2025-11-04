@@ -14,6 +14,7 @@
 #include "cJSON.h"
 #include "use_uart.h"
 #include "use_ble_server.h"
+#include "ota_manager.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -27,9 +28,6 @@ static TaskHandle_t message_task_handle = NULL;
 static bool wifi_ready = false;
 static bool ntp_ready = false;
 static bool mqtt_ready = false;
-
-/* 设备MAC地址（从硬件读取） */
-static uint8_t device_mac[6] = {0};
 
 /* ========== 消息处理框架 ========== */
 
@@ -298,12 +296,44 @@ static void message_task(void *pvParameters)
         // 喂狗：告诉看门狗任务还活着
         esp_task_wdt_reset();
         
-        // 阻塞等待消息，使用超时而不是永久等待（避免看门狗超时）
-        if (xQueueReceive(g_msg_queue, &msg, pdMS_TO_TICKS(10000)) == pdTRUE) {
+        // 阻塞等待消息，3秒超时（小于看门狗5秒超时）
+        if (xQueueReceive(g_msg_queue, &msg, pdMS_TO_TICKS(3000)) == pdTRUE) {
             mqtt_ble_data_parser_cb(&msg);
         }
     }
     vTaskDelete(NULL);
+}
+
+/**
+ * @brief OTA事件回调函数
+ */
+static void ota_event_callback(const ota_event_info_t *info)
+{
+    switch (info->event) {
+        case OTA_EVENT_START:
+            ESP_LOGI(TAG, "🚀 OTA升级开始");
+            ESP_LOGI(TAG, "  - 当前版本: %s", info->current_version);
+            ESP_LOGI(TAG, "  - 目标版本: %s", info->target_version);
+            break;
+            
+        case OTA_EVENT_PROGRESS:
+            ESP_LOGI(TAG, "📥 OTA下载进度: %d%%", info->progress);
+            break;
+            
+        case OTA_EVENT_DOWNLOAD_COMPLETE:
+            ESP_LOGI(TAG, "✅ OTA下载完成，开始验证和升级...");
+            break;
+            
+        case OTA_EVENT_SUCCESS:
+            ESP_LOGI(TAG, "🎉 OTA升级成功！设备即将重启...");
+            break;
+            
+        case OTA_EVENT_FAILED:
+            ESP_LOGE(TAG, "❌ OTA升级失败");
+            ESP_LOGE(TAG, "  - 错误码: %d", info->error_code);
+            ESP_LOGE(TAG, "  - 错误信息: %s", info->error_msg);
+            break;
+    }
 }
 
 static void wifi_status_callback(wifi_manager_event_t event, void *event_data)
@@ -378,15 +408,23 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
             ESP_LOGI(TAG, "📡 MQTT连接成功");
             
             // 订阅涂鸦命令主题
-            char subscribe_topic[128];
+            char subscribe_topic[64];
+            char ota_topic[128];
             snprintf(subscribe_topic, sizeof(subscribe_topic), "tylink/%s/thing/property/set", TUYA_DEVICE_ID);
             mqtt_manager_subscribe(subscribe_topic, 0);
-            ESP_LOGI(TAG, "📥 已订阅主题");
+            
+            // 订阅OTA升级主题
+            snprintf(ota_topic, sizeof(ota_topic), "tylink/%s/ota/issue", TUYA_DEVICE_ID);
+            mqtt_manager_subscribe(ota_topic, 1);
+            ESP_LOGI(TAG, "📥 已订阅控制和OTA主题");
 
             // 发送在线状态
-            char publish_topic[128];
+            char publish_topic[64];
             snprintf(publish_topic, sizeof(publish_topic), "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
             mqtt_manager_publish(publish_topic, "{\"properties\":{\"online\":true}}", 1);
+            
+            // 启动OTA管理器（上报版本、检测回滚）
+            ota_manager_start();
             break;
             
         case MQTT_MANAGER_EVENT_DISCONNECTED:
@@ -398,7 +436,37 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
         {
             mqtt_manager_data_t *data = (mqtt_manager_data_t *)event_data;
             
-            // 简化：只转发原始JSON到队列，由统一处理函数解析
+            // 检查是否为OTA升级消息
+            char topic_str[128] = {0};
+            if (data->topic_len < sizeof(topic_str)) {
+                memcpy(topic_str, data->topic, data->topic_len);
+                topic_str[data->topic_len] = '\0';
+                
+                // 如果是OTA消息，直接处理，不入队
+                if (strstr(topic_str, "/ota/issue") != NULL) {
+                    // 使用动态分配减少栈压力（MQTT任务栈有限）
+                    char *json_data = (char *)malloc(data->data_len + 1);
+                    if (!json_data) {
+                        ESP_LOGE(TAG, "OTA消息内存分配失败");
+                        break;
+                    }
+                    
+                    memcpy(json_data, data->data, data->data_len);
+                    json_data[data->data_len] = '\0';
+                    
+                    ESP_LOGI(TAG, "📨 收到OTA升级消息 (大小: %d字节)", data->data_len);
+                    
+                    esp_err_t ret = ota_manager_handle_upgrade(json_data);
+                    if (ret != ESP_OK) {
+                        ESP_LOGE(TAG, "OTA升级失败: %s", esp_err_to_name(ret));
+                    }
+                    
+                    free(json_data);  // 释放内存
+                    break;  // OTA消息不入队
+                }
+            }
+            
+            // 非OTA消息：转发到队列，由统一处理函数解析
             g_msg_queue_t msg = {
                 .source = MSG_SOURCE_MQTT,
                 .type = MSG_TYPE_CONTROL,
@@ -428,6 +496,16 @@ esp_err_t system_services_start(void)
     ESP_ERROR_CHECK(ntp_manager_init(ntp_status_callback));
     ESP_ERROR_CHECK(mqtt_manager_init(mqtt_status_callback));
     
+    // 初始化OTA管理器
+    ota_manager_config_t ota_config = {
+        .event_callback = ota_event_callback,
+        .auto_check_enable = false,           // 禁用自动检测（可改为true启用）
+        .auto_check_interval_hours = 24,      // 24小时检测一次
+        .download_buffer_size = 8192,         // 8KB下载缓冲区（提升下载速度）
+    };
+    ESP_ERROR_CHECK(ota_manager_init(&ota_config));
+    ESP_LOGI(TAG, "✅ OTA管理器初始化成功");
+    
     // 启动WiFi（其他服务将通过回调链式启动）
     ESP_ERROR_CHECK(wifi_manager_start());
     
@@ -439,7 +517,7 @@ esp_err_t system_services_start(void)
  */
 esp_err_t watchdog_init(void)
 {
-    ESP_LOGI(TAG, "🐕 初始化任务看门狗 (超时: %d秒)", WATCHDOG_TIMEOUT_SEC);
+    ESP_LOGI(TAG, "🐕 检查任务看门狗状态...");
     
     // 配置任务看门狗
     esp_task_wdt_config_t twdt_config = {
@@ -449,12 +527,17 @@ esp_err_t watchdog_init(void)
     };
     
     esp_err_t ret = esp_task_wdt_init(&twdt_config);
-    if (ret != ESP_OK) {
+    
+    if (ret == ESP_ERR_INVALID_STATE) {
+        // 看门狗已经初始化（系统自动初始化），直接使用即可
+        ESP_LOGI(TAG, "✅ 任务看门狗已由系统初始化（超时: %d秒）", WATCHDOG_TIMEOUT_SEC);
+        return ESP_OK;
+    } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "任务看门狗初始化失败: %s", esp_err_to_name(ret));
         return ret;
     }
     
-    ESP_LOGI(TAG, "✅ 任务看门狗初始化成功");
+    ESP_LOGI(TAG, "✅ 任务看门狗初始化成功（超时: %d秒）", WATCHDOG_TIMEOUT_SEC);
     return ESP_OK;
 }
 

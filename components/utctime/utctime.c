@@ -45,8 +45,8 @@ static void ntp_sync_task(void *arg)
         // 只有WiFi连接时才进行同步检查
         if (wifi_manager_is_connected()) {
             if (!is_synced) {
-                ESP_LOGW(TAG, "时间未同步, 30秒后重试");
-                vTaskDelay(pdMS_TO_TICKS(30*1000));
+                ESP_LOGW(TAG, "时间未同步, 5秒后重试");
+                vTaskDelay(pdMS_TO_TICKS(5*1000));
                 
                 if (esp_sntp_enabled()) {
                     esp_sntp_restart();

@@ -12,8 +12,6 @@
 #include "common.h"
 #include "app_main.h"
 
-static const char *TAG = "main";
-
 void app_main(void)
 {
     // 初始化NVS

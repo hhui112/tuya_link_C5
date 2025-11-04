@@ -37,6 +37,14 @@ extern "C" {
 #define BLE_SERVICE_UUID        0x00FF
 #define BLE_CHAR_UUID           0xFF01
 
+/* 固件版本配置 */
+// 注意：版本号必须采用 xx.yy.zz 格式（涂鸦OTA协议要求），范围 0.0.0 到 99.99.99
+// 请确保与 CMakeLists.txt 中的 PROJECT_VER 保持一致
+#define FIRMWARE_VERSION_MAIN   "1.0.3"  // 主模块固件版本（原QS_TUYA_ESPC5_V101）
+#define FIRMWARE_VERSION_MCU    "1.0.3"  // MCU固件版本（原QS_MCU_V100）
+#define OTA_CHANNEL_MAIN        0        // 主模块固件通道
+#define OTA_CHANNEL_MCU         9        // MCU固件通道
+
 /* ========== 数据结构定义 ========== */
 
 /* 消息来源枚举 */

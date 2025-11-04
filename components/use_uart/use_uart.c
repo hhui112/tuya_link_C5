@@ -382,8 +382,8 @@ static void uart_DataReceive_task(void *arg)
         // 喂狗：告诉看门狗任务还活着
         esp_task_wdt_reset();
         
-        // 等待UART事件（使用超时避免看门狗超时）
-        if (xQueueReceive(uart1_queue, (void *)&event, (TickType_t)pdMS_TO_TICKS(10000))) 
+        // 等待UART事件，3秒超时（小于看门狗5秒超时）
+        if (xQueueReceive(uart1_queue, (void *)&event, (TickType_t)pdMS_TO_TICKS(3000))) 
         {
             switch (event.type)
             {

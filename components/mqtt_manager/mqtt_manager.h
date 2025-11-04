@@ -23,6 +23,9 @@ typedef struct {
 
 typedef void (*mqtt_manager_callback_t)(mqtt_manager_event_t event, void *event_data);
 
+// 涂鸦CA证书（用于MQTT和OTA下载）
+extern const char tuya_cacert_pem[];
+
 esp_err_t mqtt_manager_init(mqtt_manager_callback_t callback);
 esp_err_t mqtt_manager_start(void);
 esp_err_t mqtt_manager_stop(void);

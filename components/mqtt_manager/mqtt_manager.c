@@ -2,10 +2,10 @@
 #include "common.h"
 #include "mqtt_client.h"
 #include "mbedtls/md.h"
+#include "esp_log.h"
 #include <time.h>
 #include <string.h>
 
-static const char *TAG = "mqtt_mgr";
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static mqtt_manager_callback_t status_callback = NULL;
 static bool is_initialized = false;
@@ -110,6 +110,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             
         case MQTT_EVENT_DATA:
             if (status_callback) {
+                // 简化日志打印，避免栈溢出（不在MQTT任务中打印大量数据）
+                ESP_LOGI("MQTT_MGR", "📨 收到MQTT消息 (Topic长度:%d, Data长度:%d)", 
+                         event->topic_len, event->data_len);
+                
                 mqtt_manager_data_t data = {
                     .topic = event->topic,
                     .topic_len = event->topic_len,

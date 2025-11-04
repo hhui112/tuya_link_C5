@@ -16,7 +16,6 @@ QueueHandle_t g_msg_queue = NULL;
 static void read_tuya_config(void)
 {
 	const esp_partition_t *partition;
-	
 	partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "storage");
 /*
 	if(partition != NULL)
