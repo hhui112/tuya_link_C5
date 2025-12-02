@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "use_uart.h"
+#include "mqtt_manager.h"
+#include "cJSON.h"
+#include "common.h"
 
 static const char *TAG = "uart";
 static QueueHandle_t uart1_queue;  // UART1事件队列
@@ -72,6 +76,63 @@ static uint32_t bytes_to_uint24_be(uint8_t high, uint8_t mid, uint8_t low) {
     return ((uint32_t)high << 16) | ((uint32_t)mid << 8) | low;
 }
 
+/* ========== 涂鸦云平台映射表 ========== */
+
+// 工作模式映射表（协议值 → 涂鸦枚举字符串）
+static const char* work_mode_to_tuya_enum(uint8_t mode) {
+    static const char* mode_map[] = {
+        "mode_work",      // 0: 工作模式
+        "mode_lim_low",   // 1: 下限位设置
+        "mode_lim_up",    // 2: 上限位设置
+        "mode_coll",      // 3: 遇阻反弹档位设置
+        "mode_child",     // 4: 儿童锁使能设置
+        "mode_pair",      // 5: 配网模式
+        "mode_stroke",    // 6: 行程学习模式
+        "mode_auto_cl",   // 7: 自动关门设置模式
+        "mode_ir_prot",   // 8: 红外保护设置模式
+        "mode_alm",       // 9: 告警模式
+        "mode_param",     // 10: 参数设置选择模式
+        "mode_dir",       // 11: 正反转设置模式
+        "mode_elock",     // 12: 电子锁设置模式
+        "mode_ctyard",    // 13: 庭院模式设置
+        "mode_open_f",    // 14: 开门力设置
+        "mode_close_s",   // 15: 关门速度设置
+        "mode_rlrn",      // 16: 遥控器配网使能设置
+        "mode_stop",      // 17: STOP端口设置
+        "mode_factory"    // 18: 恢复出厂设置模式
+    };
+    
+    if (mode >= sizeof(mode_map) / sizeof(mode_map[0])) {
+        return "mode_work";  // 默认返回工作模式
+    }
+    return mode_map[mode];
+}
+
+// 告警类型映射表（协议值 → 涂鸦枚举字符串）
+static const char* alarm_type_to_tuya_enum(uint8_t alarm) {
+    static const char* alarm_map[] = {
+        NULL,               // 0: 无告警
+        "pair_ok",          // 1: 对码成功
+        "pair_full",        // 2: 对码存储满
+        "limit_err",        // 3: 上下限位设置错误
+        "child_lock",       // 4: 儿童锁使能
+        "low_volt",         // 5: 电源电压低
+        "mot_oc",           // 6: 电机过流
+        "mot_rev",          // 7: 电机线插反
+        "enc_pos_err",      // 8: 编码器绝对位置错误
+        "stop_term",        // 9: STOP端子激活
+        "pos_cnt_err",      // 10: 位置计数错误
+        "mot_timeout",      // 11: 电机运行超时
+        "enc_comm_err",     // 12: 编码器通信错误
+        "pair_clear"        // 13: 对码信息清除
+    };
+    
+    if (alarm == 0 || alarm >= sizeof(alarm_map) / sizeof(alarm_map[0])) {
+        return NULL;  // 无告警
+    }
+    return alarm_map[alarm];
+}
+
 /**
  * @brief 解析设备状态帧（0x82/0x85应答）
  */
@@ -102,6 +163,86 @@ static void parse_device_status(const uint8_t *data, uint16_t len)
     ESP_LOGI(TAG, "报警提示: %d, 电机电流: %d", frame->alarm, motor_current);
     ESP_LOGI(TAG, "自动关门: %d秒, 灯超时: %d秒", auto_close, light_timeout);
     ESP_LOGI(TAG, "运行次数: %lu, 保养提示: %d", run_count, frame->maintenance);
+    
+    // ========== 上报到涂鸦云平台 ==========
+    
+    // 检查MQTT是否已连接
+    if (!mqtt_manager_is_connected()) {
+        ESP_LOGD(TAG, "MQTT未连接，跳过状态上报");
+        return;
+    }
+    
+    // 构造JSON（使用涂鸦云平台定义的标识符）
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        ESP_LOGE(TAG, "创建JSON对象失败");
+        return;
+    }
+    
+    cJSON *data_obj = cJSON_CreateObject();
+    if (data_obj == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "创建data对象失败");
+        return;
+    }
+    
+    // 生成msgId（时间戳+随机数）
+    char msgId[32];
+    snprintf(msgId, sizeof(msgId), "%lu%03d", 
+             (unsigned long)time(NULL), rand() % 1000);
+    
+    cJSON_AddStringToObject(root, "msgId", msgId);
+    cJSON_AddNumberToObject(root, "time", time(NULL) * 1000);  // 毫秒时间戳
+    
+    // 添加只上报的属性（使用云平台标识符）
+    cJSON_AddNumberToObject(data_obj, "cur_pos", current_pos);           // DP119: 当前位置
+    cJSON_AddNumberToObject(data_obj, "mot_strk", motor_stroke);         // DP122: 电机总行程
+    cJSON_AddBoolToObject(data_obj, "pos_valid", pos_valid);             // DP120: 位置有效性
+    
+    // DP121: 工作模式（数字转枚举字符串）
+    const char *work_mode_str = work_mode_to_tuya_enum(work_mode);
+    cJSON_AddStringToObject(data_obj, "work_mode", work_mode_str);
+    
+    cJSON_AddNumberToObject(data_obj, "mot_curr", motor_current);        // DP123: 电机电流
+    cJSON_AddNumberToObject(data_obj, "run_cnt", run_count);             // DP124: 累积运行次数
+    cJSON_AddNumberToObject(data_obj, "light_to", light_timeout);        // DP125: 灯光超时
+    cJSON_AddBoolToObject(data_obj, "maint_rmd", frame->maintenance == 1); // DP126: 保养提示
+    
+    // DP118: 告警类型（数字转枚举字符串，仅在有告警时上报）
+    if (frame->alarm > 0) {
+        const char *alarm_str = alarm_type_to_tuya_enum(frame->alarm);
+        if (alarm_str != NULL) {
+            cJSON_AddStringToObject(data_obj, "alm_type", alarm_str);
+        }
+    }
+    
+    // 将data添加到root
+    cJSON_AddItemToObject(root, "data", data_obj);
+    
+    // 转换为字符串
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (json_str == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "JSON序列化失败");
+        return;
+    }
+    
+    // 发布到MQTT（涂鸦属性上报topic）
+    char topic[64];
+    snprintf(topic, sizeof(topic), 
+             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+    
+    esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "📤 状态上报成功 (9个DP点)");
+        ESP_LOGD(TAG, "JSON: %s", json_str);
+    } else {
+        ESP_LOGE(TAG, "❌ 状态上报失败");
+    }
+    
+    // 清理资源
+    cJSON_free(json_str);
+    cJSON_Delete(root);
 }
 
 /**
@@ -129,6 +270,91 @@ static const char* get_register_name(uint8_t reg_addr)
 }
 
 /**
+ * @brief 获取寄存器对应的涂鸦DP标识符
+ */
+static const char* get_register_dp_id(uint8_t reg_addr)
+{
+    switch (reg_addr) {
+        case 0x10: return "r_col_lvl";           // 遇阻反弹档位
+        case 0x11: return "r_child_lock";        // 儿童锁使能
+        case 0x12: return "r_ir_prot";           // 红外保护使能
+        case 0x13: return "r_auto_close_t";      // 自动关门分钟数
+        case 0x14: return "r_open_frc";          // 开门力度档位
+        case 0x15: return "r_close_spd";         // 关门速度档位
+        case 0x16: return "r_inst_dir";          // 安装方向
+        case 0x17: return "r_e_lock";            // 电子锁使能
+        case 0x18: return "r_ctyard_mode";       // 庭院功能模式
+        case 0x19: return "r_rlrn_en";           // 遥控器学习使能
+        case 0x1A: return "r_stop_term";         // STOP端子
+        case 0x1B: return "r_vent_pos";          // 通风位置
+        case 0x1C: return "r_follow_fnc";        // 跟随功能
+        case 0x1D: return "reg_maintenance_level"; // 保养等级
+        default: return NULL;
+    }
+}
+
+/**
+ * @brief 将寄存器值添加到JSON对象（根据寄存器类型处理）
+ */
+static void add_register_to_json(cJSON *data_obj, uint8_t reg_addr, uint8_t value)
+{
+    const char *dp_id = get_register_dp_id(reg_addr);
+    if (dp_id == NULL) {
+        return;  // 未知寄存器，跳过
+    }
+    
+    switch (reg_addr) {
+        case 0x10: // 遇阻反弹档位 (1-9)
+        case 0x13: // 自动关门分钟数 (0-9)
+        case 0x14: // 开门力度档位 (1-9)
+        case 0x1B: // 通风位置 (0-9)
+        case 0x1C: // 跟随功能 (0-9)
+        case 0x1D: // 保养等级 (0-9)
+            // 数值型
+            cJSON_AddNumberToObject(data_obj, dp_id, value);
+            break;
+            
+        case 0x11: // 儿童锁使能 (0/1)
+        case 0x12: // 红外保护使能 (0/1)
+        case 0x17: // 电子锁使能 (0/1)
+        case 0x19: // 遥控器学习使能 (0/1)
+        case 0x1A: // STOP端子 (0/1)
+            // 布尔型
+            cJSON_AddBoolToObject(data_obj, dp_id, value != 0);
+            break;
+            
+        case 0x15: // 关门速度 (5,6,7,8,9,0 -> 50%,60%,70%,80%,90%,100%)
+        {
+            const char *speed_str = "50";
+            if (value == 0) speed_str = "100";
+            else if (value == 5) speed_str = "50";
+            else if (value == 6) speed_str = "60";
+            else if (value == 7) speed_str = "70";
+            else if (value == 8) speed_str = "80";
+            else if (value == 9) speed_str = "90";
+            cJSON_AddStringToObject(data_obj, dp_id, speed_str);
+            break;
+        }
+        
+        case 0x16: // 安装方向 (0/1 -> forward/reversal)
+        {
+            const char *dir_str = (value == 0) ? "forward" : "reversal";
+            cJSON_AddStringToObject(data_obj, dp_id, dir_str);
+            break;
+        }
+        
+        case 0x18: // 庭院功能模式 (0/1/2 -> close/mode_1/mode_2)
+        {
+            const char *mode_str = "close";
+            if (value == 1) mode_str = "mode_1";
+            else if (value == 2) mode_str = "mode_2";
+            cJSON_AddStringToObject(data_obj, dp_id, mode_str);
+            break;
+        }
+    }
+}
+
+/**
  * @brief 解析单个寄存器应答（0x83/0x84应答）
  */
 static void parse_register_resp(const uint8_t *data, uint16_t len)
@@ -146,6 +372,67 @@ static void parse_register_resp(const uint8_t *data, uint16_t len)
     ESP_LOGI(TAG, "═══ 寄存器%s (0x%02X) ═══", type_str, frame->type);
     ESP_LOGI(TAG, "寄存器: 0x%02X (%s)", frame->reg_addr, reg_name);
     ESP_LOGI(TAG, "当前值: %d, 范围: [%d, %d]", frame->value, frame->min_value, frame->max_value);
+    
+    // ========== 上报到涂鸦云平台 ==========
+    
+    // 检查MQTT是否已连接
+    if (!mqtt_manager_is_connected()) {
+        ESP_LOGD(TAG, "MQTT未连接，跳过寄存器上报");
+        return;
+    }
+    
+    // 构造JSON
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        ESP_LOGE(TAG, "创建JSON对象失败");
+        return;
+    }
+    
+    cJSON *data_obj = cJSON_CreateObject();
+    if (data_obj == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "创建data对象失败");
+        return;
+    }
+    
+    // 生成msgId
+    char msgId[32];
+    snprintf(msgId, sizeof(msgId), "%lu%03d", 
+             (unsigned long)time(NULL), rand() % 1000);
+    
+    cJSON_AddStringToObject(root, "msgId", msgId);
+    cJSON_AddNumberToObject(root, "time", time(NULL) * 1000);
+    
+    // 添加寄存器值到data对象（自动处理类型转换）
+    add_register_to_json(data_obj, frame->reg_addr, frame->value);
+    
+    // 将data添加到root
+    cJSON_AddItemToObject(root, "data", data_obj);
+    
+    // 转换为字符串
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (json_str == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "JSON序列化失败");
+        return;
+    }
+    
+    // 发布到MQTT
+    char topic[64];
+    snprintf(topic, sizeof(topic), 
+             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+    
+    esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "📤 寄存器上报成功 (0x%02X)", frame->reg_addr);
+        ESP_LOGD(TAG, "JSON: %s", json_str);
+    } else {
+        ESP_LOGE(TAG, "❌ 寄存器上报失败");
+    }
+    
+    // 清理资源
+    cJSON_free(json_str);
+    cJSON_Delete(root);
 }
 
 /**
@@ -168,6 +455,81 @@ static void parse_all_registers(const uint8_t *data, uint16_t len)
     ESP_LOGI(TAG, "庭院模式: %d, 遥控学习: %s", frame->courtyard_mode, frame->remote_learn ? "启用" : "关闭");
     ESP_LOGI(TAG, "STOP端子: %s, 通风位置: %d", frame->stop_terminal ? "常闭" : "常开", frame->vent_position);
     ESP_LOGI(TAG, "跟随功能: %d, 保养等级: %d, 保养提示: %d", frame->follow_func, frame->maintenance_level, frame->maintenance_tip);
+    
+    // ========== 上报到涂鸦云平台 ==========
+    
+    // 检查MQTT是否已连接
+    if (!mqtt_manager_is_connected()) {
+        ESP_LOGD(TAG, "MQTT未连接，跳过寄存器上报");
+        return;
+    }
+    
+    // 构造JSON
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        ESP_LOGE(TAG, "创建JSON对象失败");
+        return;
+    }
+    
+    cJSON *data_obj = cJSON_CreateObject();
+    if (data_obj == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "创建data对象失败");
+        return;
+    }
+    
+    // 生成msgId
+    char msgId[32];
+    snprintf(msgId, sizeof(msgId), "%lu%03d", 
+             (unsigned long)time(NULL), rand() % 1000);
+    
+    cJSON_AddStringToObject(root, "msgId", msgId);
+    cJSON_AddNumberToObject(root, "time", time(NULL) * 1000);
+    
+    // 按寄存器地址顺序添加所有寄存器值（使用add_register_to_json自动处理类型）
+    add_register_to_json(data_obj, 0x10, frame->collision_level);    // 遇阻反弹档位
+    add_register_to_json(data_obj, 0x11, frame->child_lock);         // 儿童锁使能
+    add_register_to_json(data_obj, 0x12, frame->infrared_protect);   // 红外保护使能
+    add_register_to_json(data_obj, 0x13, frame->auto_close_min);     // 自动关门分钟数
+    add_register_to_json(data_obj, 0x14, frame->open_force);         // 开门力度档位
+    add_register_to_json(data_obj, 0x15, frame->close_speed);        // 关门速度档位
+    add_register_to_json(data_obj, 0x17, frame->electric_lock);      // 电子锁使能
+    add_register_to_json(data_obj, 0x16, frame->install_dir);        // 安装方向
+    add_register_to_json(data_obj, 0x18, frame->courtyard_mode);     // 庭院功能模式
+    add_register_to_json(data_obj, 0x19, frame->remote_learn);       // 遥控器学习使能
+    add_register_to_json(data_obj, 0x1A, frame->stop_terminal);      // STOP端子
+    add_register_to_json(data_obj, 0x1B, frame->vent_position);      // 通风位置
+    add_register_to_json(data_obj, 0x1C, frame->follow_func);        // 跟随功能
+    add_register_to_json(data_obj, 0x1D, frame->maintenance_level);  // 保养等级
+    // 注意：保养提示(maintenance_tip)不是寄存器，不上报
+    
+    // 将data添加到root
+    cJSON_AddItemToObject(root, "data", data_obj);
+    
+    // 转换为字符串
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (json_str == NULL) {
+        cJSON_Delete(root);
+        ESP_LOGE(TAG, "JSON序列化失败");
+        return;
+    }
+    
+    // 发布到MQTT
+    char topic[64];
+    snprintf(topic, sizeof(topic), 
+             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+    
+    esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "📤 所有寄存器上报成功 (14个DP点)");
+        ESP_LOGD(TAG, "JSON: %s", json_str);
+    } else {
+        ESP_LOGE(TAG, "❌ 所有寄存器上报失败");
+    }
+    
+    // 清理资源
+    cJSON_free(json_str);
+    cJSON_Delete(root);
 }
 
 /**
@@ -259,7 +621,7 @@ static void parse_complete_frame(const uint8_t *frame, uint16_t len)
 }
 
 /**
- * @brief UART接收数据处理（带帧缓冲和重组）
+ * @brief UART接收数据处理（改进的帧同步机制）
  */
 void uart_DataReceive_handler(uint8_t *p, uint16_t len)
 {
@@ -280,37 +642,82 @@ void uart_DataReceive_handler(uint8_t *p, uint16_t len)
         }
         
         frame_buffer[frame_buffer_count++] = p[i];
+    }
+    
+    // 处理缓冲区中的数据（可能包含多个帧）
+    while (frame_buffer_count >= 2) {
+        uint8_t expected_len = frame_buffer[0];  // 第一个字节是长度字段
+        uint8_t frame_type = frame_buffer[1];    // 第二个字节是类型字段
         
-        // 至少需要2字节（长度+类型）才能判断
-        if (frame_buffer_count >= 2) {
-            uint8_t expected_len = frame_buffer[0];  // 第一个字节是长度字段
+        // 步骤1：验证长度字段
+        if (expected_len != 0x14 && expected_len != 0x06) {
+            // 长度字段无效，寻找下一个可能的帧头
+            ESP_LOGW(TAG, "非法长度字段 0x%02X，寻找下一个帧头", expected_len);
             
-            // 长度字段合法性检查
-            if (expected_len != 0x14 && expected_len != 0x06) {
-                // 不是合法的帧头，可能是数据错位，查找下一个可能的帧头
-                ESP_LOGW(TAG, "非法长度字段 0x%02X，丢弃并重新同步", expected_len);
-                frame_buffer_count = 0;
-                continue;
-            }
-            
-            // 检查是否收到完整的一帧
-            if (frame_buffer_count >= expected_len) {
-                // 收到完整帧，解析它
-                parse_complete_frame(frame_buffer, expected_len);
-                
-                // 处理缓冲区中可能存在的剩余数据（粘包情况）
-                uint16_t remaining = frame_buffer_count - expected_len;
-                if (remaining > 0) {
-                    ESP_LOGD(TAG, "缓冲区有 %d 字节剩余数据，继续处理", remaining);
-                    // 将剩余数据移到缓冲区开头
-                    memmove(frame_buffer, frame_buffer + expected_len, remaining);
-                    frame_buffer_count = remaining;
-                    // 注意：不需要回退循环，剩余数据已经在缓冲区中，
-                    // 下一次接收新数据时会继续累积处理
-                } else {
-                    frame_buffer_count = 0;
+            // 从第2个字节开始寻找有效帧头
+            bool found = false;
+            for (uint16_t j = 1; j < frame_buffer_count; j++) {
+                if (frame_buffer[j] == 0x14 || frame_buffer[j] == 0x06) {
+                    // 找到可能的帧头，验证后续字节
+                    if (j + 1 < frame_buffer_count) {
+                        uint8_t next_type = frame_buffer[j + 1];
+                        if (next_type == 0x82 || next_type == 0x83 || 
+                            next_type == 0x84 || next_type == 0x85) {
+                            // 找到有效帧头
+                            ESP_LOGI(TAG, "找到帧头位置: %d", j);
+                            memmove(frame_buffer, frame_buffer + j, frame_buffer_count - j);
+                            frame_buffer_count -= j;
+                            found = true;
+                            break;
+                        }
+                    } else {
+                        // 可能的帧头，但没有足够数据验证，保留并等待
+                        memmove(frame_buffer, frame_buffer + j, frame_buffer_count - j);
+                        frame_buffer_count -= j;
+                        found = true;
+                        break;
+                    }
                 }
             }
+            
+            if (!found) {
+                // 整个缓冲区都没有找到帧头，清空
+                ESP_LOGD(TAG, "缓冲区无有效帧头，清空");
+                frame_buffer_count = 0;
+            }
+            continue;  // 重新检查
+        }
+        
+        // 步骤2：验证类型字段（可选，提高可靠性）
+        if (frame_type != 0x82 && frame_type != 0x83 && 
+            frame_type != 0x84 && frame_type != 0x85) {
+            ESP_LOGW(TAG, "非法类型字段 0x%02X，丢弃首字节", frame_type);
+            memmove(frame_buffer, frame_buffer + 1, frame_buffer_count - 1);
+            frame_buffer_count--;
+            continue;
+        }
+        
+        // 步骤3：检查是否收到完整的一帧
+        if (frame_buffer_count < expected_len) {
+            // 数据不完整，等待更多数据
+            ESP_LOGD(TAG, "等待完整帧: 已有%d字节, 需要%d字节", 
+                     frame_buffer_count, expected_len);
+            break;  // 退出while循环，等待下次接收
+        }
+        
+        // 步骤4：收到完整帧，解析它
+        parse_complete_frame(frame_buffer, expected_len);
+        
+        // 步骤5：处理缓冲区中的剩余数据（粘包情况）
+        uint16_t remaining = frame_buffer_count - expected_len;
+        if (remaining > 0) {
+            ESP_LOGD(TAG, "缓冲区有 %d 字节剩余数据，继续处理", remaining);
+            memmove(frame_buffer, frame_buffer + expected_len, remaining);
+            frame_buffer_count = remaining;
+            // 继续while循环处理剩余数据
+        } else {
+            frame_buffer_count = 0;
+            break;  // 没有剩余数据，退出while循环
         }
     }
 }

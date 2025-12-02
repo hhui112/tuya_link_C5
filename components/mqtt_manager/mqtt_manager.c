@@ -41,7 +41,7 @@ static void generate_tuya_username(char* username, size_t size)
     time_t now;
     time(&now);
     snprintf(username, size, "%s|signMethod=hmacSha256,timestamp=%ld,secureMode=1,accessType=1", 
-             TUYA_DEVICE_ID, (long)now);
+             device_info->tuya.device_id, (long)now);
 }
 
 static void generate_tuya_password(const char* username, char* password, size_t size)
@@ -68,14 +68,15 @@ static void generate_tuya_password(const char* username, char* password, size_t 
 
     char content[256];
     snprintf(content, sizeof(content), "deviceId=%s,timestamp=%s,secureMode=1,accessType=1",
-             TUYA_DEVICE_ID, timestamp_str);
+             device_info->tuya.device_id, timestamp_str);
 
     unsigned char hmac_result[32];
     mbedtls_md_context_t ctx;
     mbedtls_md_init(&ctx);
 
     if (mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1) == 0) {
-        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)TUYA_DEVICE_SECRET, strlen(TUYA_DEVICE_SECRET));
+        mbedtls_md_hmac_starts(&ctx, (const unsigned char*)device_info->tuya.device_secret, 
+                               strlen(device_info->tuya.device_secret));
         mbedtls_md_hmac_update(&ctx, (const unsigned char*)content, strlen(content));
         mbedtls_md_hmac_finish(&ctx, hmac_result);
     }
@@ -111,9 +112,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         case MQTT_EVENT_DATA:
             if (status_callback) {
                 // 简化日志打印，避免栈溢出（不在MQTT任务中打印大量数据）
-                ESP_LOGI("MQTT_MGR", "📨 收到MQTT消息 (Topic长度:%d, Data长度:%d)", 
-                         event->topic_len, event->data_len);
-                
+                ESP_LOGI("MQTT_MGR", "收到MQTT消息 (Topic长度:%d, Data长度:%d)", event->topic_len, event->data_len);
+                printf("data: %.*s\n", event->data_len, event->data);
                 mqtt_manager_data_t data = {
                     .topic = event->topic,
                     .topic_len = event->topic_len,
@@ -143,13 +143,23 @@ esp_err_t mqtt_manager_start(void)
     if (!is_initialized) return ESP_ERR_INVALID_STATE;
     if (mqtt_client) return ESP_OK;
     
+    // 检查 device_info 是否已初始化
+    if (device_info == NULL || device_info->tuya.device_id[0] == '\0') {
+        ESP_LOGE("MQTT_MGR", "设备信息未初始化，无法启动 MQTT");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
     static char client_id[64];
     static char username[128];
     static char password[128];
     
-    snprintf(client_id, sizeof(client_id), "tuyalink_%s", TUYA_DEVICE_ID);
+    snprintf(client_id, sizeof(client_id), "tuyalink_%s", device_info->tuya.device_id);
     generate_tuya_username(username, sizeof(username));
     generate_tuya_password(username, password, sizeof(password));
+    
+    ESP_LOGI("MQTT_MGR", "使用动态配置启动 MQTT");
+    ESP_LOGI("MQTT_MGR", "Product ID: %s", device_info->tuya.product_id);
+    ESP_LOGI("MQTT_MGR", "Device ID: %s", device_info->tuya.device_id);
     
     const esp_mqtt_client_config_t mqtt_cfg = {
         .broker = {

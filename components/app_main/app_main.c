@@ -29,6 +29,28 @@ static bool wifi_ready = false;
 static bool ntp_ready = false;
 static bool mqtt_ready = false;
 
+/* ========== 属性映射表相关定义 ========== */
+
+// 属性类型枚举
+typedef enum {
+    PROP_TYPE_ACTION_ENUM,      // 动作类（枚举字符串）
+    PROP_TYPE_ACTION_BOOL,      // 动作类（布尔）
+    PROP_TYPE_REG_BOOL,         // 寄存器（布尔）
+    PROP_TYPE_REG_INT,          // 寄存器（整数）
+    PROP_TYPE_REG_ENUM_STR,     // 寄存器（枚举字符串）
+} property_type_t;
+
+// 属性处理器函数指针类型
+typedef void (*property_handler_t)(cJSON *item, const char *key);
+
+// 属性映射表结构
+typedef struct {
+    const char *key;                // JSON中的key
+    property_type_t type;           // 属性类型
+    uint8_t reg_addr;              // 寄存器地址（如果是寄存器类型）
+    property_handler_t handler;     // 自定义处理函数（可选）
+} property_map_t;
+
 /* ========== 消息处理框架 ========== */
 
 /**
@@ -141,8 +163,178 @@ static void handle_ble_control_data(cJSON *data_obj)
     // 例如：解析mccil十六进制字符串并发送到串口
 }
 
+/* ========== 属性处理函数 ========== */
+
 /**
- * @brief 处理MQTT控制数据
+ * @brief 处理门体控制（枚举：open/close/stop）
+ */
+static void handle_door_control(cJSON *item, const char *key)
+{
+    if (!cJSON_IsString(item)) return;
+    
+    const char *value = cJSON_GetStringValue(item);
+    if (strcmp(value, "open") == 0) {
+        uart_send_cmd_frame(device_info->device_mac, CMD_OPEN_DOOR);
+        ESP_LOGI(TAG, "   ✅ 门体控制: 开门");
+    } else if (strcmp(value, "close") == 0) {
+        uart_send_cmd_frame(device_info->device_mac, CMD_CLOSE_DOOR);
+        ESP_LOGI(TAG, "   ✅ 门体控制: 关门");
+    } else if (strcmp(value, "stop") == 0) {
+        uart_send_cmd_frame(device_info->device_mac, CMD_STOP_DOOR);
+        ESP_LOGI(TAG, "   ✅ 门体控制: 停止");
+    } else {
+        ESP_LOGW(TAG, "   ⚠️ 门体控制: 未知值 '%s'", value);
+    }
+}
+
+/**
+ * @brief 处理通风开关
+ */
+static void handle_switch(cJSON *item, const char *key)
+{
+    if (!cJSON_IsBool(item)) return;
+    
+    if (cJSON_IsTrue(item)) {
+        uart_send_key_frame(device_info->device_mac, KEY_VALUE_VENT);
+        ESP_LOGI(TAG, "   ✅ 通风控制: 开启");
+    }
+    }
+
+/**
+ * @brief 处理布尔型寄存器（通用）
+ */
+static void handle_reg_bool(cJSON *item, uint8_t reg_addr, const char *name)
+{
+    if (!cJSON_IsBool(item)) return;
+    
+    uint8_t value = cJSON_IsTrue(item) ? 1 : 0;
+    uart_send_write_register(device_info->device_mac, reg_addr, value);
+    ESP_LOGI(TAG, "   ✅ %s: %s", name, value ? "开启" : "关闭");
+}
+
+/**
+ * @brief 处理整数型寄存器（通用）
+ */
+static void handle_reg_int(cJSON *item, uint8_t reg_addr, const char *name)
+{
+    if (!cJSON_IsNumber(item)) return;
+    
+    int value = item->valueint;
+    uart_send_write_register(device_info->device_mac, reg_addr, (uint8_t)value);
+    ESP_LOGI(TAG, "   ✅ %s: %d", name, value);
+}
+
+/**
+ * @brief 处理关门速度（枚举字符串映射到数值）
+ */
+static void handle_close_speed(cJSON *item, const char *key)
+{
+    if (!cJSON_IsString(item)) return;
+    
+    const char *speed_str = cJSON_GetStringValue(item);
+    uint8_t speed_value = 0;
+    
+    // 字符串映射：50->5, 60->6, 70->7, 80->8, 90->9, 100->0
+    if (strcmp(speed_str, "50") == 0) speed_value = 5;
+    else if (strcmp(speed_str, "60") == 0) speed_value = 6;
+    else if (strcmp(speed_str, "70") == 0) speed_value = 7;
+    else if (strcmp(speed_str, "80") == 0) speed_value = 8;
+    else if (strcmp(speed_str, "90") == 0) speed_value = 9;
+    else if (strcmp(speed_str, "100") == 0) speed_value = 0;
+    else {
+        ESP_LOGW(TAG, "   ⚠️ 关门速度: 未知值 '%s'", speed_str);
+        return;
+    }
+    
+    uart_send_write_register(device_info->device_mac, REG_CLOSE_SPEED, speed_value);
+    ESP_LOGI(TAG, "   ✅ 关门速度: %s%%", speed_str);
+}
+
+/**
+ * @brief 处理安装方向（forward/reversal -> 0/1）
+ */
+static void handle_install_dir(cJSON *item, const char *key)
+{
+    if (!cJSON_IsString(item)) return;
+    
+    const char *dir_str = cJSON_GetStringValue(item);
+    uint8_t dir_value = 0;
+    
+    if (strcmp(dir_str, "forward") == 0) {
+        dir_value = 0;
+        ESP_LOGI(TAG, "   ✅ 安装方向: 正转");
+    } else if (strcmp(dir_str, "reversal") == 0) {
+        dir_value = 1;
+        ESP_LOGI(TAG, "   ✅ 安装方向: 反转");
+    } else {
+        ESP_LOGW(TAG, "   ⚠️ 安装方向: 未知值 '%s' (支持: forward/reversal)", dir_str);
+        return;
+    }
+    
+    uart_send_write_register(device_info->device_mac, REG_INSTALL_DIR, dir_value);
+}
+
+/**
+ * @brief 处理庭院模式（close/mode_1/mode_2 -> 0/1/2）
+ */
+static void handle_courtyard_mode(cJSON *item, const char *key)
+{
+    if (!cJSON_IsString(item)) return;
+    
+    const char *mode_str = cJSON_GetStringValue(item);
+    uint8_t mode_value = 0;
+    
+    if (strcmp(mode_str, "close") == 0) {
+        mode_value = 0;
+        ESP_LOGI(TAG, "   ✅ 庭院模式: 关闭");
+    } else if (strcmp(mode_str, "mode_1") == 0) {
+        mode_value = 1;
+        ESP_LOGI(TAG, "   ✅ 庭院模式: 模式1");
+    } else if (strcmp(mode_str, "mode_2") == 0) {
+        mode_value = 2;
+        ESP_LOGI(TAG, "   ✅ 庭院模式: 模式2");
+    } else {
+        ESP_LOGW(TAG, "   ⚠️ 庭院模式: 未知值 '%s' (支持: open/mode_1/mode_2)", mode_str);
+        return;
+    }
+    
+    uart_send_write_register(device_info->device_mac, REG_COURTYARD_MODE, mode_value);
+}
+
+/* ========== 属性映射表 ========== */
+
+static const property_map_t property_map[] = {
+    // 动作类
+    {"door_cnl",            PROP_TYPE_ACTION_ENUM,   0,                      handle_door_control},
+    {"switch",              PROP_TYPE_ACTION_BOOL,   0,                      handle_switch},
+    
+    // 寄存器类 - 布尔型
+    {"child_lock",          PROP_TYPE_REG_BOOL,      REG_CHILD_LOCK,         NULL},
+    {"r_child_lock",        PROP_TYPE_REG_BOOL,      REG_CHILD_LOCK,         NULL},
+    {"r_ir_prot",           PROP_TYPE_REG_BOOL,      REG_INFRARED_PROTECT,   NULL},
+    {"r_e_lock",            PROP_TYPE_REG_BOOL,      REG_ELECTRIC_LOCK,      NULL},
+    {"r_rlrn_en",           PROP_TYPE_REG_BOOL,      REG_REMOTE_LEARN,       NULL},
+    {"r_stop_term",         PROP_TYPE_REG_BOOL,      REG_STOP_TERMINAL,      NULL},
+    
+    // 寄存器类 - 整数型
+    {"r_col_lvl",           PROP_TYPE_REG_INT,       REG_COLLISION_LEVEL,    NULL},
+    {"r_auto_close_t",      PROP_TYPE_REG_INT,       REG_AUTO_CLOSE_MIN,     NULL},
+    {"r_open_frc",          PROP_TYPE_REG_INT,       REG_OPEN_FORCE,         NULL},
+    {"r_vent_pos",          PROP_TYPE_REG_INT,       REG_VENT_POSITION,      NULL},
+    {"r_follow_fnc",        PROP_TYPE_REG_INT,       REG_FOLLOW_FUNC,        NULL},
+    {"reg_maintenance_level", PROP_TYPE_REG_INT,     REG_MAINTENANCE_LEVEL,  NULL},
+    
+    // 寄存器类 - 枚举字符串型（需要自定义处理）
+    {"r_close_spd",         PROP_TYPE_REG_ENUM_STR,  0,                      handle_close_speed},
+    {"r_inst_dir",          PROP_TYPE_REG_ENUM_STR,  0,                      handle_install_dir},
+    {"r_ctyard_mode",       PROP_TYPE_REG_ENUM_STR,  0,                      handle_courtyard_mode},
+    
+    // 表结束标记
+    {NULL, 0, 0, NULL}
+};
+
+/**
+ * @brief 处理MQTT控制数据（优化版：循环+映射表）
  * @param data_obj JSON中的data对象
  */
 static void handle_mqtt_control_data(cJSON *data_obj)
@@ -152,58 +344,64 @@ static void handle_mqtt_control_data(cJSON *data_obj)
         return;
     }
     
-    ESP_LOGI(TAG, "📋 处理MQTT控制数据");
+    // ESP_LOGI(TAG, "📋 开始处理MQTT控制数据");
     
-    // 提取mccil字段（十六进制字符串）
-    cJSON *mccil_item = cJSON_GetObjectItem(data_obj, "mccil");
-    if (mccil_item && cJSON_IsString(mccil_item)) {
-        ESP_LOGI(TAG, "   mccil: %s", mccil_item->valuestring);
-    }
+    int processed_count = 0;
+    int total_count = 0;
     
-    // 处理开门/上升指令
-    cJSON *up = cJSON_GetObjectItem(data_obj, "up");
-    if (up && cJSON_IsBool(up)) {
-        bool up_value = cJSON_IsTrue(up);
-        if (up_value) {
-            uart_send_cmd_frame(device_info->device_mac, CMD_OPEN_DOOR);
-            ESP_LOGI(TAG, "   开门/上升: true");
+    // 遍历data对象的所有子项
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, data_obj) {
+        const char *key = item->string;  // 获取key名称
+        
+        if (key == NULL) continue;
+        
+        total_count++;
+        
+        // 在映射表中查找对应的处理器
+        bool handled = false;
+        for (int i = 0; property_map[i].key != NULL; i++) {
+            if (strcmp(key, property_map[i].key) == 0) {
+                // 找到匹配项
+                const property_map_t *prop = &property_map[i];
+                
+                // 根据类型处理
+                switch (prop->type) {
+                    case PROP_TYPE_ACTION_ENUM:
+                    case PROP_TYPE_ACTION_BOOL:
+                    case PROP_TYPE_REG_ENUM_STR:
+                        // 调用自定义处理函数
+                        if (prop->handler) {
+                            prop->handler(item, key);
+                            processed_count++;
+                        }
+                        break;
+                        
+                    case PROP_TYPE_REG_BOOL:
+                        // 通用布尔寄存器处理
+                        handle_reg_bool(item, prop->reg_addr, key);
+                        processed_count++;
+                        break;
+                        
+                    case PROP_TYPE_REG_INT:
+                        // 通用整数寄存器处理
+                        handle_reg_int(item, prop->reg_addr, key);
+                        processed_count++;
+                        break;
+                }
+                
+                handled = true;
+                break;
+            }
+        }
+        
+        // 如果没有找到处理器，记录日志
+        if (!handled) {
+            ESP_LOGD(TAG, "   ⚠️ 未识别的属性: %s", key);
         }
     }
     
-    // 处理关门/下降指令
-    cJSON *down = cJSON_GetObjectItem(data_obj, "down");
-    if (down && cJSON_IsBool(down)) {
-        bool down_value = cJSON_IsTrue(down);
-        if (down_value) {
-            uart_send_cmd_frame(device_info->device_mac, CMD_CLOSE_DOOR);
-            ESP_LOGI(TAG, "   关门/下降: true");
-        }
-    }
-    
-    // 处理通风开关
-    cJSON *switch_item = cJSON_GetObjectItem(data_obj, "switch");
-    if (switch_item && cJSON_IsBool(switch_item)) {
-        bool switch_value = cJSON_IsTrue(switch_item);
-        if (switch_value) {
-            uart_send_cmd_frame(device_info->device_mac, KEY_VALUE_VENT);
-            ESP_LOGI(TAG, "   通风功能: true");
-        }
-    }
-    
-    // 处理童锁（写寄存器，0关闭/1开启）
-    cJSON *child_lock = cJSON_GetObjectItem(data_obj, "child_lock");
-    if (child_lock && cJSON_IsBool(child_lock)) {
-        uint8_t lock_value = cJSON_IsTrue(child_lock) ? 1 : 0;
-        uart_send_write_register(device_info->device_mac, REG_CHILD_LOCK, lock_value);
-        ESP_LOGI(TAG, "   童锁功能: %s", lock_value ? "开启" : "关闭");
-    }
-    
-    // 处理遇阻反弹级别
-    cJSON *collision_level = cJSON_GetObjectItem(data_obj, "reg_collision_level");
-    if (collision_level && cJSON_IsNumber(collision_level)) {
-        uart_send_write_register(device_info->device_mac, REG_OPEN_FORCE, collision_level->valueint);
-        ESP_LOGI(TAG, "   遇阻反弹级别: %d", collision_level->valueint);
-    }
+    ESP_LOGI(TAG, "✅ MQTT控制数据处理完成 (处理: %d/%d)", processed_count, total_count);
 }
 
 /**
@@ -233,14 +431,21 @@ void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
     // 参数校验
     if (msg == NULL || msg->data_len == 0) {ESP_LOGW(TAG, "⚠️ 无效消息");return;}
     const char* source_str = (msg->source == MSG_SOURCE_BLE) ? "BLE" : (msg->source == MSG_SOURCE_MQTT) ? "MQTT" : "UNKNOWN";
-    ESP_LOGI(TAG, "📥 收到 %s 消息 (%d字节)", source_str, msg->data_len);
+    // ESP_LOGI(TAG, "📥 收到 %s 消息 (%d字节)", source_str, msg->data_len);
     if (msg->data[0] != '{') {ESP_LOGW(TAG, "⚠️ 非JSON格式消息，跳过处理");return;}
 
 
     
-    // 解析JSON
-    cJSON *root = cJSON_ParseWithLength((const char*)msg->data, msg->data_len);
-    if (!root) {ESP_LOGW(TAG, "⚠️ JSON解析失败");return;}
+    // 解析JSON（字符串已有null结尾）
+    cJSON *root = cJSON_Parse((const char*)msg->data);
+    if (!root) {
+        ESP_LOGW(TAG, "⚠️ JSON解析失败");
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL) {
+            ESP_LOGE(TAG, "JSON错误位置: %s", error_ptr);
+        }
+        return;
+    }
     
     switch (msg->source)
     {
@@ -470,12 +675,13 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
             g_msg_queue_t msg = {
                 .source = MSG_SOURCE_MQTT,
                 .type = MSG_TYPE_CONTROL,
-                .data_len = (data->data_len < MAX_MSG_SIZE) ? data->data_len : MAX_MSG_SIZE
+                .data_len = (data->data_len < MAX_MSG_SIZE - 1) ? data->data_len : (MAX_MSG_SIZE - 1)
             };
             memcpy(msg.data, data->data, msg.data_len);
+            msg.data[msg.data_len] = '\0';  // ✅ 添加null结尾符，确保字符串有效
             
             if (xQueueSend(g_msg_queue, &msg, 0) == pdPASS) {
-                ESP_LOGI(TAG, "📨 MQTT消息已入队");
+                ESP_LOGI(TAG, "📨 MQTT消息已入队 (%d字节)", msg.data_len);
             } else {
                 ESP_LOGW(TAG, "⚠️ 消息队列已满");
             }
@@ -558,3 +764,4 @@ esp_err_t app_main_start(void)
 
     return ESP_OK;
 }
+

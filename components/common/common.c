@@ -17,19 +17,54 @@ static void read_tuya_config(void)
 {
 	const esp_partition_t *partition;
 	partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "storage");
-/*
+	
 	if(partition != NULL)
 	{
-		esp_partition_read(partition, 0, &tuya_config, sizeof(tuya_config_t));
-		memcpy(device_info->id, tuya_config.device_id, strlen(tuya_config.device_id));
-		//涂鸦 参数配置
-		memcpy(device_info->tuya.device_id, tuya_config.device_id, strlen(tuya_config.device_id));
-		memcpy(device_info->tuya.product_id, tuya_config.product_id, strlen(tuya_config.product_id));
-		memcpy(device_info->tuya.device_secret, tuya_config.device_secret, strlen(tuya_config.device_secret));
+		esp_err_t ret = esp_partition_read(partition, 0, &tuya_config, sizeof(tuya_config_t));
+		
+		// 确保字符串以 \0 结尾（防止越界）
+		tuya_config.product_id[sizeof(tuya_config.product_id) - 1] = '\0';
+		tuya_config.device_id[sizeof(tuya_config.device_id) - 1] = '\0';
+		tuya_config.device_secret[sizeof(tuya_config.device_secret) - 1] = '\0';
+		
+		// 检查读取是否成功以及数据是否有效（非全0）
+		if(ret == ESP_OK && 
+		   tuya_config.product_id[0] != '\0' && 
+		   tuya_config.device_id[0] != '\0' && 
+		   tuya_config.device_secret[0] != '\0')
+		{
+			// 安全复制：使用 strncpy 代替 memcpy+strlen
+			strncpy(device_info->id, tuya_config.device_id, sizeof(device_info->id) - 1);
+			device_info->id[sizeof(device_info->id) - 1] = '\0';
+			
+			// 涂鸦参数配置 - 安全复制
+			strncpy(device_info->tuya.product_id, tuya_config.product_id, sizeof(device_info->tuya.product_id) - 1);
+			device_info->tuya.product_id[sizeof(device_info->tuya.product_id) - 1] = '\0';
+			
+			strncpy(device_info->tuya.device_id, tuya_config.device_id, sizeof(device_info->tuya.device_id) - 1);
+			device_info->tuya.device_id[sizeof(device_info->tuya.device_id) - 1] = '\0';
+			
+			strncpy(device_info->tuya.device_secret, tuya_config.device_secret, sizeof(device_info->tuya.device_secret) - 1);
+			device_info->tuya.device_secret[sizeof(device_info->tuya.device_secret) - 1] = '\0';
 
-		printf("----------------get tuya_config form partition---------------------- \n");
-	}else
- */
+			ESP_LOGI(TAG, "从 storage 分区读取涂鸦配置成功");
+		}
+		else
+		{
+			ESP_LOGW(TAG, "storage 分区数据无效，使用默认配置");
+			goto use_default_config;
+		}
+	}
+	else
+	{
+		ESP_LOGW(TAG, "未找到 storage 分区，使用默认配置");
+		goto use_default_config;
+	}
+	
+	// 跳过默认配置
+	goto config_done;
+	
+use_default_config:
 	{
 		// 安全的设备id设置
 		strncpy(device_info->id, TUYA_DEVICE_ID, sizeof(device_info->id) - 1);
@@ -44,10 +79,12 @@ static void read_tuya_config(void)
 		
 		strncpy(device_info->tuya.device_id, TUYA_DEVICE_ID, sizeof(device_info->tuya.device_id) - 1);
 		device_info->tuya.device_id[sizeof(device_info->tuya.device_id) - 1] = '\0';
-		
-		printf("----------------use common tuya_config----------------------\n");	
 	}
-	printf("PRODUCT_ID:%s,DEVICE_SECRET:%s,DEVICE_ID:%s \n",device_info->tuya.product_id,device_info->tuya.device_secret,device_info->tuya.device_id);
+	
+config_done:
+	ESP_LOGI(TAG, "PRODUCT_ID:%s, DEVICE_ID:%s", 
+	         device_info->tuya.product_id, 
+	         device_info->tuya.device_id);
 }
 
 //设置默认参数
@@ -131,16 +168,14 @@ void config_store_to_flash(void)
         ESP_ERROR_CHECK(nvs_get_str(nvs_config_handler, "wifiSsid", device_info->wifi.ssid, &len));
         len = sizeof(device_info->wifi.passwd);
         ESP_ERROR_CHECK(nvs_get_str(nvs_config_handler, "wifiPasswd", device_info->wifi.passwd, &len));
-        ESP_LOGI(TAG, "wifiSsid: %s, wifiPasswd: %s", device_info->wifi.ssid, device_info->wifi.passwd);
-        printf("----------------nvs config read ok----------------------\n");
+        ESP_LOGI(TAG, "从 NVS 读取 WiFi 配置: %s", device_info->wifi.ssid);
     } else {
         // 首次初始化，写入默认配置
         ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "wifiSsid", device_info->wifi.ssid));
         ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "wifiPasswd", device_info->wifi.passwd));
         ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "configFlag", "ok"));
         ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));
-        ESP_LOGI(TAG, "wifiSsid: %s, wifiPasswd: %s", device_info->wifi.ssid, device_info->wifi.passwd);
-        printf("----------------nvs config init ok----------------------\n");
+        ESP_LOGI(TAG, "初始化 NVS WiFi 配置: %s", device_info->wifi.ssid);
     }
     // 提交配置
     ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));
@@ -155,8 +190,6 @@ void wifi_config_store_to_flash(void)
         return;
     }
     
-    char out_value[64] = {0};
-    size_t len = sizeof(out_value);
     nvs_handle_t nvs_config_handler;
     
     // 打开 NVS 句柄
@@ -170,8 +203,7 @@ void wifi_config_store_to_flash(void)
     ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "wifiPasswd", device_info->wifi.passwd));
     ESP_ERROR_CHECK(nvs_set_str(nvs_config_handler, "configFlag", "ok"));
     ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));
-    ESP_LOGI(TAG, "wifiSsid: %s, wifiPasswd: %s", device_info->wifi.ssid, device_info->wifi.passwd);
-    printf("----------------ssid/password saved to flash oK----------------------\n");
+    ESP_LOGI(TAG, "WiFi 配置已保存到 Flash: %s", device_info->wifi.ssid);
 
     // 提交配置
     ESP_ERROR_CHECK(nvs_commit(nvs_config_handler));

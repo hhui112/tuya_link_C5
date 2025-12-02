@@ -27,10 +27,14 @@ extern "C" {
 #define WIFI_PASSWORD           "77885522"
 #define WIFI_MAXIMUM_RETRY      30
 
-/* 涂鸦IoT MQTT配置 */
+/* 涂鸦IoT MQTT配置 
 #define TUYA_PRODUCT_ID         "owes0z4baov2vqgx"
 #define TUYA_DEVICE_ID          "2631a16994c01c1f45qfha"
 #define TUYA_DEVICE_SECRET      "ecw9VrT7fLlgP6br"
+*/
+#define TUYA_PRODUCT_ID         "2esrxjypqu3jbysa"
+#define TUYA_DEVICE_ID          "26020eed9491bbe94fmzgz"
+#define TUYA_DEVICE_SECRET      "37JPY3dUmXGe1pM0"
 #define TUYA_MQTT_URL           "mqtts://m1.tuyacn.com:8883"
 
 /* BLE配置 */
@@ -61,7 +65,7 @@ typedef enum {
 } msg_type_t;
 
 /* 统一消息结构体 */
-#define MAX_MSG_SIZE 256
+#define MAX_MSG_SIZE 512  // 支持较大的MQTT消息（涂鸦协议通常不超过512字节）
 typedef struct {
     msg_source_t source;            // 消息来源
     msg_type_t type;                // 消息类型
@@ -71,10 +75,10 @@ typedef struct {
 
 typedef struct
 {
-    char product_id[20];
-    char device_id[20];
-    char device_secret[20];
-} tuya_config_t;
+    char product_id[32];      // 增加到32字节，足够容纳涂鸦产品ID（通常16字符）
+    char device_id[32];       // 增加到32字节，足够容纳涂鸦设备ID（通常22字符）
+    char device_secret[32];   // 增加到32字节，足够容纳涂鸦密钥（通常16字符）
+} tuya_config_t;              // 总大小：96字节
 
 typedef struct
 {

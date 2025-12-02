@@ -48,7 +48,7 @@ extern "C" {
 // 指令定义
 #define CMD_OPEN_DOOR           0x0001  // 控制门体开门
 #define CMD_CLOSE_DOOR          0x0002  // 控制门体关门
-#define CMD_STOP                0x0004  // 控制门体停止
+#define CMD_STOP_DOOR           0x0004  // 控制门体停止
 #define CMD_SET_UPPER_LIMIT     0x0006  // 上限位设置
 #define CMD_SET_LOWER_LIMIT     0x0007  // 下限位设置
 #define CMD_STROKE_COMPLETE     0x0008  // 行程设置完成
@@ -73,6 +73,29 @@ extern "C" {
 #define REG_MAINTENANCE_LEVEL   0x1D  // 保养等级（0~9）
 #define REG_READ_ALL_FE         0xFE  // 读取所有参数-格式2（四元组格式）
 #define REG_READ_ALL            0xFF  // 读取所有参数-格式1（固定格式）
+
+// 工作模式枚举
+typedef enum {
+    WORK_MODE = 0,                          // 工作模式
+    LOWER_LIMIT_SETTING_MODE = 1,           // 下限位设置
+    UPPER_LIMIT_SETTING_MODE = 2,           // 上限位设置
+    COLLISION_SENSITIVITY_SETTING_MODE = 3, // 遇阻反弹档位设置
+    CHILD_LOCK_SETTING_MODE = 4,            // 儿童锁使能设置
+    PAIRING_MODE = 5,                       // 配网模式
+    STROKE_LEARNING_MODE = 6,               // 行程学习模式
+    AUTO_CLOSE_SETTING_MODE = 7,            // 自动关门设置
+    INFRARED_PROTECT_SETTING_MODE = 8,      // 红外保护设置
+    ALARM_MODE = 9,                         // 告警模式
+    PARAM_SELECT_MODE = 10,                 // 参数设置选择模式
+    DIRECTION_SETTING_MODE = 11,            // 正反转设置
+    ELECTRIC_LOCK_SETTING_MODE = 12,        // 电子锁设置
+    COURTYARD_MODE_SETTING_MODE = 13,       // 庭院模式设置
+    OPEN_FORCE_SETTING_MODE = 14,           // 开门力设置
+    CLOSE_SPEED_SETTING_MODE = 15,          // 关门速度设置
+    REMOTE_LEARN_SETTING_MODE = 16,         // 遥控器配网使能设置
+    STOP_TERMINAL_SETTING_MODE = 17,        // STOP端口设置
+    FACTORY_RESET_MODE = 18                 // 恢复出厂设置模式
+} door_work_mode_t;
 
 // 1. 键值&指令应答（0x14字节长度）
 typedef struct __attribute__((packed)) {
