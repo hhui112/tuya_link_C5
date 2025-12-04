@@ -41,6 +41,10 @@ extern "C" {
 #define BLE_SERVICE_UUID        0x00FF
 #define BLE_CHAR_UUID           0xFF01
 
+/* 调试配置 */
+#define DEBUG_STATUS_PRINT      1       // 状态打印开关：1=开启，0=关闭
+#define DEBUG_STATUS_INTERVAL   30      // 状态打印间隔（秒）
+
 /* 固件版本配置 */
 // 注意：版本号必须采用 xx.yy.zz 格式（涂鸦OTA协议要求），范围 0.0.0 到 99.99.99
 // 请确保与 CMakeLists.txt 中的 PROJECT_VER 保持一致

@@ -1,6 +1,7 @@
 #include "app_main.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_task_wdt.h"
@@ -23,6 +24,10 @@ static const char *TAG = "APP_MAIN";
 
 /* 任务句柄 */
 static TaskHandle_t message_task_handle = NULL;
+
+#if DEBUG_STATUS_PRINT
+static TimerHandle_t status_timer_handle = NULL;
+#endif
 
 /* 系统状态 */
 static bool wifi_ready = false;
@@ -50,6 +55,68 @@ typedef struct {
     uint8_t reg_addr;              // 寄存器地址（如果是寄存器类型）
     property_handler_t handler;     // 自定义处理函数（可选）
 } property_map_t;
+
+/* ========== 调试状态打印 ========== */
+
+#if DEBUG_STATUS_PRINT
+/**
+ * @brief 状态打印定时器回调函数
+ * 每30秒打印一次设备的连接状态
+ */
+static void status_print_timer_callback(TimerHandle_t xTimer)
+{
+    (void)xTimer;  // 未使用参数
+    
+    // 获取各模块连接状态
+    bool wifi_ok = wifi_manager_is_connected();
+    bool ble_ok = use_ble_server_is_connected();
+    bool ntp_ok = ntp_manager_is_synced();
+    bool mqtt_ok = mqtt_manager_is_connected();
+    
+    // 获取WiFi信号强度
+    int rssi = device_info->wifi.rssi;
+    
+    // 获取当前时间（如果已同步）
+    char time_str[20] = "N/A";
+    if (ntp_ok) {
+        time_t now;
+        time(&now);
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+        strftime(time_str, sizeof(time_str), "%H:%M:%S", &timeinfo);
+    }
+    
+    // 一行简洁打印所有状态
+    ESP_LOGI(TAG, "[STATUS] WiFi:%s BLE:%s NTP:%s MQTT:%s | ID:%.16s... | RSSI:%d | %s",
+             wifi_ok ? "✓" : "✗",
+             ble_ok ? "✓" : "✗",
+             ntp_ok ? "✓" : "✗",
+             mqtt_ok ? "✓" : "✗",
+             device_info->tuya.device_id,
+             rssi,
+             time_str);
+}
+
+/**
+ * @brief 启动状态打印定时器
+ */
+static void status_print_timer_start(void)
+{
+    status_timer_handle = xTimerCreate(
+        "status_timer",
+        pdMS_TO_TICKS(DEBUG_STATUS_INTERVAL * 1000),  // 间隔时间
+        pdTRUE,                                        // 自动重载
+        NULL,
+        status_print_timer_callback
+    );
+    
+    if (status_timer_handle != NULL) {
+        if (xTimerStart(status_timer_handle, 0) == pdPASS) {
+            ESP_LOGI(TAG, "🔧 调试状态打印已启动（间隔: %d秒）", DEBUG_STATUS_INTERVAL);
+        }
+    }
+}
+#endif
 
 /* ========== 消息处理框架 ========== */
 
@@ -612,20 +679,20 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
             mqtt_ready = true;
             ESP_LOGI(TAG, "📡 MQTT连接成功");
             
-            // 订阅涂鸦命令主题
+            // 订阅涂鸦命令主题（使用动态设备ID）
             char subscribe_topic[64];
             char ota_topic[128];
-            snprintf(subscribe_topic, sizeof(subscribe_topic), "tylink/%s/thing/property/set", TUYA_DEVICE_ID);
+            snprintf(subscribe_topic, sizeof(subscribe_topic), "tylink/%s/thing/property/set", device_info->tuya.device_id);
             mqtt_manager_subscribe(subscribe_topic, 0);
             
             // 订阅OTA升级主题
-            snprintf(ota_topic, sizeof(ota_topic), "tylink/%s/ota/issue", TUYA_DEVICE_ID);
+            snprintf(ota_topic, sizeof(ota_topic), "tylink/%s/ota/issue", device_info->tuya.device_id);
             mqtt_manager_subscribe(ota_topic, 1);
             ESP_LOGI(TAG, "📥 已订阅控制和OTA主题");
 
             // 发送在线状态
             char publish_topic[64];
-            snprintf(publish_topic, sizeof(publish_topic), "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+            snprintf(publish_topic, sizeof(publish_topic), "tylink/%s/thing/property/report", device_info->tuya.device_id);
             mqtt_manager_publish(publish_topic, "{\"properties\":{\"online\":true}}", 1);
             
             // 启动OTA管理器（上报版本、检测回滚）
@@ -761,6 +828,11 @@ esp_err_t app_main_start(void)
 
     BaseType_t ret3 = start_uart_receive_task();
     if (ret3 != pdPASS) {ESP_LOGE(TAG, "创建uart业务任务失败");return ESP_FAIL;}
+
+#if DEBUG_STATUS_PRINT
+    // 启动状态打印定时器
+    status_print_timer_start();
+#endif
 
     return ESP_OK;
 }

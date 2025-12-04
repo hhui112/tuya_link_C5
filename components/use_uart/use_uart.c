@@ -227,10 +227,10 @@ static void parse_device_status(const uint8_t *data, uint16_t len)
         return;
     }
     
-    // 发布到MQTT（涂鸦属性上报topic）
+    // 发布到MQTT（涂鸦属性上报topic，使用动态设备ID）
     char topic[64];
     snprintf(topic, sizeof(topic), 
-             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+             "tylink/%s/thing/property/report", device_info->tuya.device_id);
     
     esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
     if (ret == ESP_OK) {
@@ -417,10 +417,10 @@ static void parse_register_resp(const uint8_t *data, uint16_t len)
         return;
     }
     
-    // 发布到MQTT
+    // 发布到MQTT（使用动态设备ID）
     char topic[64];
     snprintf(topic, sizeof(topic), 
-             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+             "tylink/%s/thing/property/report", device_info->tuya.device_id);
     
     esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
     if (ret == ESP_OK) {
@@ -514,10 +514,10 @@ static void parse_all_registers(const uint8_t *data, uint16_t len)
         return;
     }
     
-    // 发布到MQTT
+    // 发布到MQTT（使用动态设备ID）
     char topic[64];
     snprintf(topic, sizeof(topic), 
-             "tylink/%s/thing/property/report", TUYA_DEVICE_ID);
+             "tylink/%s/thing/property/report", device_info->tuya.device_id);
     
     esp_err_t ret = mqtt_manager_publish(topic, json_str, 1);
     if (ret == ESP_OK) {

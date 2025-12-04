@@ -87,8 +87,8 @@ static esp_err_t report_progress(uint8_t channel, int progress, int error_code, 
     char topic[64];     // 减小到64字节（topic通常不长）
     char json[512];     // 减小到384字节（足够容纳进度报告）
 
-    // 构造 topic
-    if (tuya_ota_build_topic(TUYA_DEVICE_ID, TUYA_OTA_TOPIC_PROGRESS, topic, sizeof(topic)) != ESP_OK) {
+    // 构造 topic（使用动态设备ID）
+    if (tuya_ota_build_topic(device_info->tuya.device_id, TUYA_OTA_TOPIC_PROGRESS, topic, sizeof(topic)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to build progress topic");
         return ESP_FAIL;
     }
@@ -410,8 +410,8 @@ esp_err_t ota_manager_report_version(const char *biz_type)
         return ESP_FAIL;
     }
 
-    // 构造 topic
-    if (tuya_ota_build_topic(TUYA_DEVICE_ID, TUYA_OTA_TOPIC_FIRMWARE_REPORT, topic, sizeof(topic)) != ESP_OK) {
+    // 构造 topic（使用动态设备ID）
+    if (tuya_ota_build_topic(device_info->tuya.device_id, TUYA_OTA_TOPIC_FIRMWARE_REPORT, topic, sizeof(topic)) != ESP_OK) {
         ESP_LOGE(TAG, "构造topic失败");
         return ESP_FAIL;
     }
@@ -507,8 +507,8 @@ esp_err_t ota_manager_check_update(void)
         return ESP_FAIL;
     }
 
-    // 构造 topic
-    if (tuya_ota_build_topic(TUYA_DEVICE_ID, TUYA_OTA_TOPIC_FIRMWARE_GET, topic, sizeof(topic)) != ESP_OK) {
+    // 构造 topic（使用动态设备ID）
+    if (tuya_ota_build_topic(device_info->tuya.device_id, TUYA_OTA_TOPIC_FIRMWARE_GET, topic, sizeof(topic)) != ESP_OK) {
         ESP_LOGE(TAG, "构造topic失败");
         return ESP_FAIL;
     }

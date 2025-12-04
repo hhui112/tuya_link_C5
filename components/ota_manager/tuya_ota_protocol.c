@@ -71,7 +71,7 @@ esp_err_t tuya_ota_build_version_report(
     
     // 如果是INIT类型，添加PID
     if (strcmp(biz_type, TUYA_OTA_BIZ_TYPE_INIT) == 0) {
-        cJSON_AddStringToObject(data, "pid", TUYA_PRODUCT_ID);
+        cJSON_AddStringToObject(data, "pid", device_info->tuya.product_id);
     }
     
     // 添加固件通道数组
