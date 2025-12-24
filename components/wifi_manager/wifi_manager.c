@@ -60,7 +60,7 @@ void wifi_manager_reconfigure(const char* ssid, const char* password, wifi_pre_r
         return;
     }
     
-    ESP_LOGI(TAG, "🔄 开始WiFi重配置 (SSID: %s)", ssid);
+    ESP_LOGI(TAG, "🔧 收到BLE配网指令 (SSID: %s) (pwd: %s)", ssid, password);
     
     // 备份当前配置（用于失败回滚）
     wifi_config_t old_config;

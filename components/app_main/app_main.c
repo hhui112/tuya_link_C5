@@ -184,7 +184,7 @@ static void handle_ble_net_config(cJSON *data_obj)
     const char *ssid = ssid_item->valuestring;
     const char *password = pwd_item->valuestring;
     
-    ESP_LOGI(TAG, "🔧 收到BLE配网指令 (SSID: %s)", ssid);
+    ESP_LOGI(TAG, "🔧 收到BLE配网指令 (SSID: %s) (pwd: %s)", ssid, password);
     
     // 存入device_info（内存）
     strncpy(device_info->wifi.ssid, ssid, sizeof(device_info->wifi.ssid) - 1);
@@ -636,6 +636,12 @@ static void wifi_status_callback(wifi_manager_event_t event, void *event_data)
             if (!ntp_ready) {
                 ESP_LOGI(TAG, "🕐 启动NTP时间同步...");
                 ntp_manager_start();
+            } else {
+                // 如果NTP已同步，但MQTT未连接（例如配网回滚场景），直接启动MQTT
+                if (!mqtt_ready) {
+                    ESP_LOGI(TAG, "📡 WiFi重连成功，NTP已同步，启动MQTT...");
+                    mqtt_manager_start();
+                }
             }
             break;
             

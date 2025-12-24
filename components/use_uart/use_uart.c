@@ -371,7 +371,7 @@ static void parse_register_resp(const uint8_t *data, uint16_t len)
     
     ESP_LOGI(TAG, "═══ 寄存器%s (0x%02X) ═══", type_str, frame->type);
     ESP_LOGI(TAG, "寄存器: 0x%02X (%s)", frame->reg_addr, reg_name);
-    ESP_LOGI(TAG, "当前值: %d, 范围: [%d, %d]", frame->value, frame->min_value, frame->max_value);
+    ESP_LOGI(TAG, "当前值: %d", frame->value);
     
     // ========== 上报到涂鸦云平台 ==========
     
@@ -592,7 +592,7 @@ static void parse_complete_frame(const uint8_t *frame, uint16_t len)
         // 设备状态应答
         parse_device_status(frame, len);
     }
-    else if (frame_len == 0x06 && (frame_type == FRAME_TYPE_READ_RESP || frame_type == FRAME_TYPE_WRITE_RESP)) {
+    else if (frame_len == 0x04 && (frame_type == FRAME_TYPE_READ_RESP || frame_type == FRAME_TYPE_WRITE_RESP)) {
         // 单个寄存器应答
         parse_register_resp(frame, len);
     }
@@ -650,14 +650,14 @@ void uart_DataReceive_handler(uint8_t *p, uint16_t len)
         uint8_t frame_type = frame_buffer[1];    // 第二个字节是类型字段
         
         // 步骤1：验证长度字段
-        if (expected_len != 0x14 && expected_len != 0x06) {
+        if (expected_len != 0x14 && expected_len != 0x04) {
             // 长度字段无效，寻找下一个可能的帧头
             ESP_LOGW(TAG, "非法长度字段 0x%02X，寻找下一个帧头", expected_len);
             
             // 从第2个字节开始寻找有效帧头
             bool found = false;
             for (uint16_t j = 1; j < frame_buffer_count; j++) {
-                if (frame_buffer[j] == 0x14 || frame_buffer[j] == 0x06) {
+                if (frame_buffer[j] == 0x14 || frame_buffer[j] == 0x04) {
                     // 找到可能的帧头，验证后续字节
                     if (j + 1 < frame_buffer_count) {
                         uint8_t next_type = frame_buffer[j + 1];
@@ -800,6 +800,12 @@ static void uart_DataReceive_task(void *arg)
                 if (event.size > 0 && event.size <= BUF_SIZE) {
                     int len = uart_read_bytes(ECHO_UART_PORT_NUM, dtmp, event.size, pdMS_TO_TICKS(100));
                     if (len > 0) {
+                        // 打印接收到的原始数据
+                        printf("UART接收数据 (%d字节): ", len);
+                        for (int i = 0; i < len; i++) {
+                            printf("%02x ", dtmp[i]);
+                        }
+                        printf("\n");
                         uart_DataReceive_handler(dtmp, len);
                     }
                 } else {

@@ -12,8 +12,8 @@ extern "C" {
 
 // 串口配置
 #define UART_PORT_NUM          (1)      // UART1端口号
-#define UART_TXD_PIN           (23)     // GPIO23作为TX（J3排针序号5）
-#define UART_RXD_PIN           (24)     // GPIO24作为RX（J3排针序号4）
+#define UART_TXD_PIN           (5)     // GPIO23作为TX（J3排针序号5）
+#define UART_RXD_PIN           (4)     // GPIO24作为RX（J3排针序号4）
 #define UART_BAUD_RATE         (115200) // 波特率
 
 // 内部使用的别名（保持兼容性）
@@ -115,14 +115,14 @@ typedef struct __attribute__((packed)) {
     uint8_t maintenance;         // 保养提示（0/1/2）
 } device_status_frame_t;
 
-// 2. 单个寄存器读写应答（0x06字节长度）
+// 2. 单个寄存器读写应答（0x04字节长度）
 typedef struct __attribute__((packed)) {
-    uint8_t length;              // 长度：0x06
+    uint8_t length;              // 长度：0x04
     uint8_t type;                // 类型：0x83（读）/0x84（写）
     uint8_t reg_addr;            // 寄存器地址（0x10~0x1d）
     uint8_t value;               // 当前值
-    uint8_t max_value;           // 上限值
-    uint8_t min_value;           // 下限值
+    // uint8_t max_value;           // 上限值
+    // uint8_t min_value;           // 下限值
 } register_resp_frame_t;
 
 // 3. 读所有寄存器应答-格式1（0x14字节长度，功能码0xFF）
