@@ -6,6 +6,7 @@
 #include "esp_netif.h"
 #include "esp_task_wdt.h"
 #include "esp_mac.h"
+#include "esp_system.h"
 #include "wifi_manager.h"
 #include "mqtt_manager.h"
 #include "utctime.h"
@@ -88,10 +89,10 @@ static void status_print_timer_callback(TimerHandle_t xTimer)
     
     // 一行简洁打印所有状态
     ESP_LOGI(TAG, "[STATUS] WiFi:%s BLE:%s NTP:%s MQTT:%s | ID:%.16s... | RSSI:%d | %s",
-             wifi_ok ? "✓" : "✗",
-             ble_ok ? "✓" : "✗",
-             ntp_ok ? "✓" : "✗",
-             mqtt_ok ? "✓" : "✗",
+             wifi_ok ? "1" : "0",
+             ble_ok ? "1" : "0",
+             ntp_ok ? "1" : "0",
+             mqtt_ok ? "1" : "0",
              device_info->tuya.device_id,
              rssi,
              time_str);
@@ -112,7 +113,7 @@ static void status_print_timer_start(void)
     
     if (status_timer_handle != NULL) {
         if (xTimerStart(status_timer_handle, 0) == pdPASS) {
-            ESP_LOGI(TAG, "🔧 调试状态打印已启动（间隔: %d秒）", DEBUG_STATUS_INTERVAL);
+            ESP_LOGI(TAG, "Status print started, interval: %d sec", DEBUG_STATUS_INTERVAL);
         }
     }
 }
@@ -130,6 +131,8 @@ static void wifi_pre_reconfig_handler(void)
     if (mqtt_manager_is_connected()) {
         mqtt_manager_stop();
     }
+    // 重置MQTT就绪标志，确保配网后重新连接
+    mqtt_ready = false;
     // 可以在这里添加其他需要停止的服务
 }
 
@@ -141,7 +144,7 @@ static void wifi_pre_reconfig_handler(void)
 static void send_config_result(bool success, const char* ip_str)
 {
     if (!use_ble_server_is_connected()) {
-        ESP_LOGW(TAG, "BLE未连接，跳过发送配网结果");
+        ESP_LOGW(TAG, "BLE not connected, skip sending config result");
         return;
     }
     
@@ -160,7 +163,7 @@ static void send_config_result(bool success, const char* ip_str)
     char *json_str = cJSON_PrintUnformatted(root);
     if (json_str) {
         use_ble_server_notify_data((uint8_t*)json_str, strlen(json_str));
-        ESP_LOGI(TAG, "📤 发送配网结果: %s", json_str);
+        ESP_LOGI(TAG, "Send config result: %s", json_str);
         free(json_str);
     }
     cJSON_Delete(root);
@@ -177,14 +180,14 @@ static void handle_ble_net_config(cJSON *data_obj)
     
     if (!ssid_item || !cJSON_IsString(ssid_item) || 
         !pwd_item || !cJSON_IsString(pwd_item)) {
-        ESP_LOGW(TAG, "⚠️ ssid或password字段缺失或格式错误");
+        ESP_LOGW(TAG, "ssid or password字段缺失或格式错误");
         return;
     }
     
     const char *ssid = ssid_item->valuestring;
     const char *password = pwd_item->valuestring;
     
-    ESP_LOGI(TAG, "🔧 收到BLE配网指令 (SSID: %s) (pwd: %s)", ssid, password);
+    ESP_LOGI(TAG, "BLE config received, SSID: %s", ssid);
     
     // 存入device_info（内存）
     strncpy(device_info->wifi.ssid, ssid, sizeof(device_info->wifi.ssid) - 1);
@@ -203,27 +206,8 @@ static void handle_ble_net_config(cJSON *data_obj)
 static void handle_ble_control_data(cJSON *data_obj)
 {
     if (!data_obj || !cJSON_IsObject(data_obj)) {
-        ESP_LOGW(TAG, "⚠️ uart_control的data字段不是对象");
+        ESP_LOGW(TAG, "BLE control data invalid");
         return;
-    }
-    
-    ESP_LOGI(TAG, "📋 处理BLE控制数据");
-    
-    // 提取mccil字段（十六进制字符串）
-    cJSON *mccil_item = cJSON_GetObjectItem(data_obj, "mccil");
-    if (mccil_item && cJSON_IsString(mccil_item)) {
-        ESP_LOGI(TAG, "   mccil: %s", mccil_item->valuestring);
-    }
-    
-    // 提取其他字段（可选，框架层面只打印）
-    cJSON *up_item = cJSON_GetObjectItem(data_obj, "up");
-    if (up_item && cJSON_IsString(up_item)) {
-        ESP_LOGI(TAG, "   up: %s", up_item->valuestring);
-    }
-    
-    cJSON *set_item = cJSON_GetObjectItem(data_obj, "set");
-    if (set_item && cJSON_IsString(set_item)) {
-        ESP_LOGI(TAG, "   set: %s", set_item->valuestring);
     }
     
     // TODO: 这里添加具体的业务处理逻辑
@@ -242,15 +226,15 @@ static void handle_door_control(cJSON *item, const char *key)
     const char *value = cJSON_GetStringValue(item);
     if (strcmp(value, "open") == 0) {
         uart_send_cmd_frame(device_info->device_mac, CMD_OPEN_DOOR);
-        ESP_LOGI(TAG, "   ✅ 门体控制: 开门");
+        ESP_LOGI(TAG, "Door control: open");
     } else if (strcmp(value, "close") == 0) {
         uart_send_cmd_frame(device_info->device_mac, CMD_CLOSE_DOOR);
-        ESP_LOGI(TAG, "   ✅ 门体控制: 关门");
+        ESP_LOGI(TAG, "Door control: close");
     } else if (strcmp(value, "stop") == 0) {
         uart_send_cmd_frame(device_info->device_mac, CMD_STOP_DOOR);
-        ESP_LOGI(TAG, "   ✅ 门体控制: 停止");
+        ESP_LOGI(TAG, "Door control: stop");
     } else {
-        ESP_LOGW(TAG, "   ⚠️ 门体控制: 未知值 '%s'", value);
+        ESP_LOGW(TAG, "Door control: unknown value '%s'", value);
     }
 }
 
@@ -263,7 +247,7 @@ static void handle_switch(cJSON *item, const char *key)
     
     if (cJSON_IsTrue(item)) {
         uart_send_key_frame(device_info->device_mac, KEY_VALUE_VENT);
-        ESP_LOGI(TAG, "   ✅ 通风控制: 开启");
+        ESP_LOGI(TAG, "Ventilation: on");
     }
     }
 
@@ -276,7 +260,7 @@ static void handle_reg_bool(cJSON *item, uint8_t reg_addr, const char *name)
     
     uint8_t value = cJSON_IsTrue(item) ? 1 : 0;
     uart_send_write_register(device_info->device_mac, reg_addr, value);
-    ESP_LOGI(TAG, "   ✅ %s: %s", name, value ? "开启" : "关闭");
+    ESP_LOGI(TAG, "Register %s: %d", name, value);
 }
 
 /**
@@ -288,7 +272,7 @@ static void handle_reg_int(cJSON *item, uint8_t reg_addr, const char *name)
     
     int value = item->valueint;
     uart_send_write_register(device_info->device_mac, reg_addr, (uint8_t)value);
-    ESP_LOGI(TAG, "   ✅ %s: %d", name, value);
+    ESP_LOGI(TAG, "Register %s: %d", name, value);
 }
 
 /**
@@ -309,12 +293,12 @@ static void handle_close_speed(cJSON *item, const char *key)
     else if (strcmp(speed_str, "90") == 0) speed_value = 9;
     else if (strcmp(speed_str, "100") == 0) speed_value = 0;
     else {
-        ESP_LOGW(TAG, "   ⚠️ 关门速度: 未知值 '%s'", speed_str);
+        ESP_LOGW(TAG, "Close speed: unknown value '%s'", speed_str);
         return;
     }
     
     uart_send_write_register(device_info->device_mac, REG_CLOSE_SPEED, speed_value);
-    ESP_LOGI(TAG, "   ✅ 关门速度: %s%%", speed_str);
+    ESP_LOGI(TAG, "Close speed: %s%%", speed_str);
 }
 
 /**
@@ -329,12 +313,12 @@ static void handle_install_dir(cJSON *item, const char *key)
     
     if (strcmp(dir_str, "forward") == 0) {
         dir_value = 0;
-        ESP_LOGI(TAG, "   ✅ 安装方向: 正转");
+        ESP_LOGI(TAG, "Install dir: forward");
     } else if (strcmp(dir_str, "reversal") == 0) {
         dir_value = 1;
-        ESP_LOGI(TAG, "   ✅ 安装方向: 反转");
+        ESP_LOGI(TAG, "Install dir: reversal");
     } else {
-        ESP_LOGW(TAG, "   ⚠️ 安装方向: 未知值 '%s' (支持: forward/reversal)", dir_str);
+        ESP_LOGW(TAG, "Install dir: unknown value '%s'", dir_str);
         return;
     }
     
@@ -353,15 +337,15 @@ static void handle_courtyard_mode(cJSON *item, const char *key)
     
     if (strcmp(mode_str, "close") == 0) {
         mode_value = 0;
-        ESP_LOGI(TAG, "   ✅ 庭院模式: 关闭");
+        ESP_LOGI(TAG, "Courtyard mode: close");
     } else if (strcmp(mode_str, "mode_1") == 0) {
         mode_value = 1;
-        ESP_LOGI(TAG, "   ✅ 庭院模式: 模式1");
+        ESP_LOGI(TAG, "Courtyard mode: mode_1");
     } else if (strcmp(mode_str, "mode_2") == 0) {
         mode_value = 2;
-        ESP_LOGI(TAG, "   ✅ 庭院模式: 模式2");
+        ESP_LOGI(TAG, "Courtyard mode: mode_2");
     } else {
-        ESP_LOGW(TAG, "   ⚠️ 庭院模式: 未知值 '%s' (支持: open/mode_1/mode_2)", mode_str);
+        ESP_LOGW(TAG, "Courtyard mode: unknown value '%s'", mode_str);
         return;
     }
     
@@ -407,11 +391,9 @@ static const property_map_t property_map[] = {
 static void handle_mqtt_control_data(cJSON *data_obj)
 {
     if (!data_obj || !cJSON_IsObject(data_obj)) {
-        ESP_LOGW(TAG, "⚠️ MQTT的data字段不是对象");
+        ESP_LOGW(TAG, "MQTT data invalid");
         return;
     }
-    
-    // ESP_LOGI(TAG, "📋 开始处理MQTT控制数据");
     
     int processed_count = 0;
     int total_count = 0;
@@ -419,7 +401,7 @@ static void handle_mqtt_control_data(cJSON *data_obj)
     // 遍历data对象的所有子项
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, data_obj) {
-        const char *key = item->string;  // 获取key名称
+        const char *key = item->string;
         
         if (key == NULL) continue;
         
@@ -429,7 +411,6 @@ static void handle_mqtt_control_data(cJSON *data_obj)
         bool handled = false;
         for (int i = 0; property_map[i].key != NULL; i++) {
             if (strcmp(key, property_map[i].key) == 0) {
-                // 找到匹配项
                 const property_map_t *prop = &property_map[i];
                 
                 // 根据类型处理
@@ -437,7 +418,6 @@ static void handle_mqtt_control_data(cJSON *data_obj)
                     case PROP_TYPE_ACTION_ENUM:
                     case PROP_TYPE_ACTION_BOOL:
                     case PROP_TYPE_REG_ENUM_STR:
-                        // 调用自定义处理函数
                         if (prop->handler) {
                             prop->handler(item, key);
                             processed_count++;
@@ -445,13 +425,11 @@ static void handle_mqtt_control_data(cJSON *data_obj)
                         break;
                         
                     case PROP_TYPE_REG_BOOL:
-                        // 通用布尔寄存器处理
                         handle_reg_bool(item, prop->reg_addr, key);
                         processed_count++;
                         break;
                         
                     case PROP_TYPE_REG_INT:
-                        // 通用整数寄存器处理
                         handle_reg_int(item, prop->reg_addr, key);
                         processed_count++;
                         break;
@@ -461,14 +439,11 @@ static void handle_mqtt_control_data(cJSON *data_obj)
                 break;
             }
         }
-        
-        // 如果没有找到处理器，记录日志
-        if (!handled) {
-            ESP_LOGD(TAG, "   ⚠️ 未识别的属性: %s", key);
-        }
     }
     
-    ESP_LOGI(TAG, "✅ MQTT控制数据处理完成 (处理: %d/%d)", processed_count, total_count);
+    if (processed_count > 0) {
+        ESP_LOGI(TAG, "MQTT control processed: %d/%d", processed_count, total_count);
+    }
 }
 
 /**
@@ -481,7 +456,7 @@ static void handle_mqtt_message(cJSON *root)
     // 直接提取data对象
     cJSON *data_obj = cJSON_GetObjectItem(root, "data");
     if (!data_obj) {
-        ESP_LOGW(TAG, "⚠️ MQTT消息缺少data字段");
+        ESP_LOGW(TAG, "MQTT message missing data field");
         return;
     }
     
@@ -495,22 +470,20 @@ static void handle_mqtt_message(cJSON *root)
  */
 void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
 {
-    // 参数校验
-    if (msg == NULL || msg->data_len == 0) {ESP_LOGW(TAG, "⚠️ 无效消息");return;}
-    const char* source_str = (msg->source == MSG_SOURCE_BLE) ? "BLE" : (msg->source == MSG_SOURCE_MQTT) ? "MQTT" : "UNKNOWN";
-    // ESP_LOGI(TAG, "📥 收到 %s 消息 (%d字节)", source_str, msg->data_len);
-    if (msg->data[0] != '{') {ESP_LOGW(TAG, "⚠️ 非JSON格式消息，跳过处理");return;}
-
-
+    if (msg == NULL || msg->data_len == 0) {
+        ESP_LOGW(TAG, "Invalid message");
+        return;
+    }
     
-    // 解析JSON（字符串已有null结尾）
+    if (msg->data[0] != '{') {
+        ESP_LOGW(TAG, "Non-JSON message, skip");
+        return;
+    }
+    
+    // 解析JSON
     cJSON *root = cJSON_Parse((const char*)msg->data);
     if (!root) {
-        ESP_LOGW(TAG, "⚠️ JSON解析失败");
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL) {
-            ESP_LOGE(TAG, "JSON错误位置: %s", error_ptr);
-        }
+        ESP_LOGW(TAG, "JSON parse failed");
         return;
     }
     
@@ -520,33 +493,31 @@ void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
         handle_mqtt_message(root);
         break;
     case MSG_SOURCE_BLE:
-        // 提取cmd字段
         cJSON *cmd_item = cJSON_GetObjectItem(root, "cmd");
-        if (!cmd_item || !cJSON_IsString(cmd_item)) {ESP_LOGW(TAG, "⚠️ BLE消息缺少cmd字段");break;}
+        if (!cmd_item || !cJSON_IsString(cmd_item)) {
+            ESP_LOGW(TAG, "BLE message missing cmd field");
+            break;
+        }
         
         const char *cmd = cmd_item->valuestring;
-        ESP_LOGI(TAG, "📌 BLE命令: %s", cmd);
-        
-        // 提取data字段
         cJSON *data_obj = cJSON_GetObjectItem(root, "data");
-        if (!data_obj) {ESP_LOGW(TAG, "⚠️ BLE消息缺少data字段");break;}
+        if (!data_obj) {
+            ESP_LOGW(TAG, "BLE message missing data field");
+            break;
+        }
         
-        // 根据cmd路由到不同的处理函数
-        if (strcmp(cmd, "net_config") == 0) 
-        {
+        if (strcmp(cmd, "net_config") == 0) {
             handle_ble_net_config(data_obj);
-        } else if (strcmp(cmd, "uart_control") == 0) 
-        {
+        } else if (strcmp(cmd, "uart_control") == 0) {
             handle_ble_control_data(data_obj);
         } else {
-            ESP_LOGW(TAG, "⚠️ 未知的BLE命令: %s", cmd);
+            ESP_LOGW(TAG, "Unknown BLE command: %s", cmd);
         }
         break;
 
     default:
-        ESP_LOGW(TAG, "⚠️ 未知的消息来源: %d", msg->source);
+        ESP_LOGW(TAG, "Unknown message source: %d", msg->source);
         break;
-
     }
     cJSON_Delete(root);
 }
@@ -557,11 +528,7 @@ void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
  */
 static void message_task(void *pvParameters)
 {
-    ESP_LOGI(TAG, "APP业务任务已启动");
-    
-    // 订阅任务看门狗
     esp_task_wdt_add(NULL);
-    ESP_LOGI(TAG, "消息处理任务已订阅看门狗");
     
     g_msg_queue_t msg; 
     while (1) {
@@ -583,27 +550,27 @@ static void ota_event_callback(const ota_event_info_t *info)
 {
     switch (info->event) {
         case OTA_EVENT_START:
-            ESP_LOGI(TAG, "🚀 OTA升级开始");
-            ESP_LOGI(TAG, "  - 当前版本: %s", info->current_version);
-            ESP_LOGI(TAG, "  - 目标版本: %s", info->target_version);
+            ESP_LOGI(TAG, "OTA start, current: %s, target: %s", 
+                     info->current_version, info->target_version);
             break;
             
         case OTA_EVENT_PROGRESS:
-            ESP_LOGI(TAG, "📥 OTA下载进度: %d%%", info->progress);
+            if (info->progress % 10 == 0) {  // 每10%打印一次
+                ESP_LOGI(TAG, "OTA progress: %d%%", info->progress);
+            }
             break;
             
         case OTA_EVENT_DOWNLOAD_COMPLETE:
-            ESP_LOGI(TAG, "✅ OTA下载完成，开始验证和升级...");
+            ESP_LOGI(TAG, "OTA download complete");
             break;
             
         case OTA_EVENT_SUCCESS:
-            ESP_LOGI(TAG, "🎉 OTA升级成功！设备即将重启...");
+            ESP_LOGI(TAG, "OTA success, restarting");
             break;
             
         case OTA_EVENT_FAILED:
-            ESP_LOGE(TAG, "❌ OTA升级失败");
-            ESP_LOGE(TAG, "  - 错误码: %d", info->error_code);
-            ESP_LOGE(TAG, "  - 错误信息: %s", info->error_msg);
+            ESP_LOGE(TAG, "OTA failed, code: %d, msg: %s", 
+                     info->error_code, info->error_msg);
             break;
     }
 }
@@ -614,47 +581,46 @@ static void wifi_status_callback(wifi_manager_event_t event, void *event_data)
         case WIFI_MANAGER_EVENT_CONNECTED:
             wifi_ready = true;
             ip_event_got_ip_t* ip_event = (ip_event_got_ip_t*) event_data;
-            ESP_LOGI(TAG, "📶 WiFi连接成功: IP地址:" IPSTR, IP2STR(&ip_event->ip_info.ip));
+            ESP_LOGI(TAG, "WiFi connected, IP: " IPSTR, IP2STR(&ip_event->ip_info.ip));
 
-            // 检查是否是BLE配网操作
             if (wifi_manager_is_reconnected())
             {
-                // 配网成功，保存配置到Flash（直接写入新配置）
                 wifi_config_store_to_flash();
-                ESP_LOGI(TAG, "✅ BLE配网成功，配置已保存到Flash");
+                ESP_LOGI(TAG, "BLE config success, saved to flash");
                 
-                // 发送配网成功通知到BLE
                 char ip_str[16];
                 snprintf(ip_str, sizeof(ip_str), IPSTR, IP2STR(&ip_event->ip_info.ip));
                 send_config_result(true, ip_str);
                 
-                // 清除配网标志位
                 wifi_manager_clear_reconnected_bit();
+                
+                ESP_LOGI(TAG, "Restart in 1s to apply new config");
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                esp_restart();
+                return;
             }
 
-            // WiFi连接成功后启动NTP（无论是配网还是普通连接）
             if (!ntp_ready) {
-                ESP_LOGI(TAG, "🕐 启动NTP时间同步...");
                 ntp_manager_start();
             } else {
-                // 如果NTP已同步，但MQTT未连接（例如配网回滚场景），直接启动MQTT
                 if (!mqtt_ready) {
-                    ESP_LOGI(TAG, "📡 WiFi重连成功，NTP已同步，启动MQTT...");
-                    mqtt_manager_start();
+                    esp_err_t ret = mqtt_manager_start();
+                    if (ret != ESP_OK) {
+                        ESP_LOGE(TAG, "MQTT start failed: %s", esp_err_to_name(ret));
+                    }
                 }
             }
             break;
             
         case WIFI_MANAGER_EVENT_DISCONNECTED:
             wifi_ready = false;
-            ntp_ready = false;   // WiFi断开时NTP也不可用
-            mqtt_ready = false;  // WiFi断开时MQTT也会断开
-            ESP_LOGW(TAG, "📶 WiFi连接断开");
+            ntp_ready = false;
+            mqtt_ready = false;
+            ESP_LOGW(TAG, "WiFi disconnected");
             break;
             
         case WIFI_MANAGER_EVENT_PROV_FAILED:
-            ESP_LOGW(TAG, "❌ 配网失败");
-            // 发送配网失败通知到BLE
+            ESP_LOGW(TAG, "Config failed");
             send_config_result(false, NULL);
             break;
     }
@@ -665,15 +631,17 @@ static void ntp_status_callback(ntp_manager_event_t event, void *event_data)
     switch (event) {
         case NTP_MANAGER_EVENT_TIME_SYNCED:
             ntp_ready = true;
-            ESP_LOGI(TAG, "🕐 时间同步成功");
-            // 时间同步成功后启动MQTT
-            if (wifi_ready) {
-                mqtt_manager_start();
+            ESP_LOGI(TAG, "NTP synced");
+            if (wifi_ready && !mqtt_ready) {
+                esp_err_t ret = mqtt_manager_start();
+                if (ret != ESP_OK) {
+                    ESP_LOGE(TAG, "MQTT start failed: %s", esp_err_to_name(ret));
+                }
             }
             break;
             
         case NTP_MANAGER_EVENT_SYNC_FAILED:
-            ESP_LOGW(TAG, "🕐 时间同步失败");
+            ESP_LOGW(TAG, "NTP sync failed");
             break;
     }
 }
@@ -683,31 +651,26 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
     switch (event) {
         case MQTT_MANAGER_EVENT_CONNECTED:
             mqtt_ready = true;
-            ESP_LOGI(TAG, "📡 MQTT连接成功");
+            ESP_LOGI(TAG, "MQTT connected");
             
-            // 订阅涂鸦命令主题（使用动态设备ID）
             char subscribe_topic[64];
             char ota_topic[128];
             snprintf(subscribe_topic, sizeof(subscribe_topic), "tylink/%s/thing/property/set", device_info->tuya.device_id);
             mqtt_manager_subscribe(subscribe_topic, 0);
             
-            // 订阅OTA升级主题
             snprintf(ota_topic, sizeof(ota_topic), "tylink/%s/ota/issue", device_info->tuya.device_id);
             mqtt_manager_subscribe(ota_topic, 1);
-            ESP_LOGI(TAG, "📥 已订阅控制和OTA主题");
 
-            // 发送在线状态
             char publish_topic[64];
             snprintf(publish_topic, sizeof(publish_topic), "tylink/%s/thing/property/report", device_info->tuya.device_id);
             mqtt_manager_publish(publish_topic, "{\"properties\":{\"online\":true}}", 1);
             
-            // 启动OTA管理器（上报版本、检测回滚）
             ota_manager_start();
             break;
             
         case MQTT_MANAGER_EVENT_DISCONNECTED:
             mqtt_ready = false;
-            ESP_LOGW(TAG, "📡 MQTT连接断开");
+            ESP_LOGW(TAG, "MQTT disconnected");
             break;
             
         case MQTT_MANAGER_EVENT_DATA_RECEIVED:
@@ -732,7 +695,7 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
                     memcpy(json_data, data->data, data->data_len);
                     json_data[data->data_len] = '\0';
                     
-                    ESP_LOGI(TAG, "📨 收到OTA升级消息 (大小: %d字节)", data->data_len);
+                    ESP_LOGI(TAG, "OTA message received, size: %d", data->data_len);
                     
                     esp_err_t ret = ota_manager_handle_upgrade(json_data);
                     if (ret != ESP_OK) {
@@ -753,10 +716,8 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
             memcpy(msg.data, data->data, msg.data_len);
             msg.data[msg.data_len] = '\0';  // ✅ 添加null结尾符，确保字符串有效
             
-            if (xQueueSend(g_msg_queue, &msg, 0) == pdPASS) {
-                ESP_LOGI(TAG, "📨 MQTT消息已入队 (%d字节)", msg.data_len);
-            } else {
-                ESP_LOGW(TAG, "⚠️ 消息队列已满");
+            if (xQueueSend(g_msg_queue, &msg, 0) != pdPASS) {
+                ESP_LOGW(TAG, "Message queue full");
             }
         }
         break;
@@ -768,24 +729,18 @@ static void mqtt_status_callback(mqtt_manager_event_t event, void *event_data)
  */
 esp_err_t system_services_start(void)
 {
-    ESP_LOGI(TAG, "🚀 启动系统服务");
-    
-    // 初始化各个管理器
     ESP_ERROR_CHECK(wifi_manager_init(wifi_status_callback));
     ESP_ERROR_CHECK(ntp_manager_init(ntp_status_callback));
     ESP_ERROR_CHECK(mqtt_manager_init(mqtt_status_callback));
     
-    // 初始化OTA管理器
     ota_manager_config_t ota_config = {
         .event_callback = ota_event_callback,
-        .auto_check_enable = false,           // 禁用自动检测（可改为true启用）
-        .auto_check_interval_hours = 24,      // 24小时检测一次
-        .download_buffer_size = 8192,         // 8KB下载缓冲区（提升下载速度）
+        .auto_check_enable = false,
+        .auto_check_interval_hours = 24,
+        .download_buffer_size = 8192,
     };
     ESP_ERROR_CHECK(ota_manager_init(&ota_config));
-    ESP_LOGI(TAG, "✅ OTA管理器初始化成功");
     
-    // 启动WiFi（其他服务将通过回调链式启动）
     ESP_ERROR_CHECK(wifi_manager_start());
     
     return ESP_OK;
@@ -796,27 +751,21 @@ esp_err_t system_services_start(void)
  */
 esp_err_t watchdog_init(void)
 {
-    ESP_LOGI(TAG, "🐕 检查任务看门狗状态...");
-    
-    // 配置任务看门狗
     esp_task_wdt_config_t twdt_config = {
-        .timeout_ms = WATCHDOG_TIMEOUT_SEC * 1000,  // 超时时间（毫秒）
-        .idle_core_mask = 0,                         // 不监控空闲任务
-        .trigger_panic = true                        // 超时时触发panic重启
+        .timeout_ms = WATCHDOG_TIMEOUT_SEC * 1000,
+        .idle_core_mask = 0,
+        .trigger_panic = true
     };
     
     esp_err_t ret = esp_task_wdt_init(&twdt_config);
     
     if (ret == ESP_ERR_INVALID_STATE) {
-        // 看门狗已经初始化（系统自动初始化），直接使用即可
-        ESP_LOGI(TAG, "✅ 任务看门狗已由系统初始化（超时: %d秒）", WATCHDOG_TIMEOUT_SEC);
         return ESP_OK;
     } else if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "任务看门狗初始化失败: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Watchdog init failed: %s", esp_err_to_name(ret));
         return ret;
     }
     
-    ESP_LOGI(TAG, "✅ 任务看门狗初始化成功（超时: %d秒）", WATCHDOG_TIMEOUT_SEC);
     return ESP_OK;
 }
 

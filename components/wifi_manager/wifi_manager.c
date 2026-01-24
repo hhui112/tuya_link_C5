@@ -25,7 +25,7 @@ static wifi_config_backup_t config_backup = {0};
 #define WIFI_CONNECTED_BIT          (1UL << 0)
 #define WIFI_FAIL_BIT               (1UL << 1)
 #define WIFI_RECONNECTED_BIT        (1UL << 2)
-#define WIFI_PROV_MAX_RETRY         5       // 配网专用重试次数
+#define WIFI_PROV_MAX_RETRY         3       // 配网专用重试次数（减少等待时间，提升用户体验）
 #define WIFI_STOP_DELAY_MS          200     // WiFi停止后的等待时间
 
 // 辅助函数：应用WiFi配置（SSID和密码）
