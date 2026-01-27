@@ -19,7 +19,7 @@ extern "C" {
 
 /* ========== 全局配置参数 ========== */
 /*设备信息 */
-#define DEVICE_NAME             "ESP32C5_TEST_1"
+#define DEVICE_NAME             "WTDL_"
 
 
 /* WiFi配置 */

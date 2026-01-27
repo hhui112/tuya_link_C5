@@ -5427,3 +5427,107 @@ Start time: 20260123-15:56
 Connect baud: 115200
 Com:COM3
 serial port open error
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:07
+Connect baud: 115200
+Com:COM3
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+com closed
+Total use time: 5 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:07
+Connect baud: 115200
+Com:COM3
+connecting...
+manufacturer_id: 0x20
+device_id: 0x4017
+fs:0x200200
+address/file: 8192 C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+address/file: 32768 C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+address/file: 61440 C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\ota_data_initial.bin
+address/file: 131072 C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+address/file: 3801088 C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\tuya_config_263d751b02fbb6977bwumr.bin
+Wrote 20448 bytes (12867 compressed) at 0x00002000 in 0.4 seconds (effective 421.4 kbit/s)...
+Wrote 3072 bytes (145 compressed) at 0x00008000 in 0.0 seconds (effective 1480.5 kbit/s)...
+Wrote 8192 bytes (31 compressed) at 0x0000f000 in 0.0 seconds (effective 2502.6 kbit/s)...
+Wrote 1366448 bytes (860387 compressed) at 0x00020000 in 19.9 seconds (effective 548.8 kbit/s)...
+Wrote 96 bytes (68 compressed) at 0x003a0000 in 0.0 seconds (effective 97.5 kbit/s)...
+File: C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\bootloader.bin
+File  md5: b8750cabe11e167b3c97a53cd8e286bd
+Flash md5: b8750cabe11e167b3c97a53cd8e286bd
+Hash of data verified.
+File: C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\partition-table.bin
+File  md5: 635f976f07f5860aa4fb8e476854a409
+Flash md5: 635f976f07f5860aa4fb8e476854a409
+Hash of data verified.
+File: C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\ota_data_initial.bin
+File  md5: 84d04c9d6cc8ef35bf825d51a5277699
+Flash md5: 84d04c9d6cc8ef35bf825d51a5277699
+Hash of data verified.
+File: C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\wifi_station.bin
+File  md5: 68e7fb1c08a4d6ab37e092b47561d226
+Flash md5: 68e7fb1c08a4d6ab37e092b47561d226
+Hash of data verified.
+File: C:\git\tuya_link_C5\flash_download_tool\dl_temp\bin_tmp\downloadPanel1\tuya_config_263d751b02fbb6977bwumr.bin
+File  md5: a76079ee34c6eff74c533745e9ed25e3
+Flash md5: a76079ee34c6eff74c533745e9ed25e3
+Hash of data verified.
+
+Leaving...
+com closed
+Total use time: 25 s
+Download result: PASS
+*************************** END ****************************
+
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:15
+Connect baud: 115200
+Com:COM6
+connecting...
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:15
+Connect baud: 115200
+Com:COM6
+connecting...
+set STOP FLG: Trueset state: ESP_DL_STOP
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:16
+Connect baud: 115200
+Com:COM6
+connecting...
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:17
+Connect baud: 115200
+Com:COM6
+connecting...
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-11:18
+Connect baud: 115200
+Com:COM6
+connecting...
+*************************** START ****************************
+Chip: ESP32C5
+Download mode: uart
+Start time: 20260124-13:15
+Connect baud: 115200
+Com:COM6
+connecting...

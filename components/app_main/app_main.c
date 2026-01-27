@@ -12,6 +12,7 @@
 #include "utctime.h"
 #include "common.h"
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 #include "cJSON.h"
 #include "use_uart.h"
@@ -137,36 +138,55 @@ static void wifi_pre_reconfig_handler(void)
 }
 
 /**
+ * @brief 发送通用响应到BLE客户端
+ * @param cmd 命令名称（如 "net_config_response", "clr_config_response"）
+ * @param success 是否成功
+ * @param data_obj 数据对象（可为NULL）
+ */
+static void send_ble_response(const char* cmd, bool success, cJSON* data_obj)
+{
+    if (!use_ble_server_is_connected()) {
+        ESP_LOGW(TAG, "BLE not connected, skip sending response");
+        return;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "cmd", cmd);
+    cJSON_AddStringToObject(root, "status", success ? "success" : "failed");
+    
+    if (data_obj) {
+        cJSON_AddItemToObject(root, "data", data_obj);
+    } else {
+        cJSON *data = cJSON_CreateObject();
+        if (!success) {
+            cJSON_AddStringToObject(data, "message", "failed");
+        }
+        cJSON_AddItemToObject(root, "data", data);
+    }
+    
+    char *json_str = cJSON_PrintUnformatted(root);
+    if (json_str) {
+        use_ble_server_notify_data((uint8_t*)json_str, strlen(json_str));
+        ESP_LOGI(TAG, "Send BLE response: %s", json_str);
+        free(json_str);
+    }
+    cJSON_Delete(root);
+}
+
+/**
  * @brief 发送配网结果到BLE客户端
  * @param success 配网是否成功
  * @param ip_str IP地址（成功时传入，失败时传NULL）
  */
 static void send_config_result(bool success, const char* ip_str)
 {
-    if (!use_ble_server_is_connected()) {
-        ESP_LOGW(TAG, "BLE not connected, skip sending config result");
-        return;
-    }
-    
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "cmd", "net_config_response");
-    cJSON_AddStringToObject(root, "status", success ? "success" : "failed");
-    
     cJSON *data = cJSON_CreateObject();
     if (success && ip_str) {
         cJSON_AddStringToObject(data, "ip", ip_str);
     } else {
-        cJSON_AddStringToObject(data, "message", "配网失败");
+        cJSON_AddStringToObject(data, "message", "config failed");
     }
-    cJSON_AddItemToObject(root, "data", data);
-    
-    char *json_str = cJSON_PrintUnformatted(root);
-    if (json_str) {
-        use_ble_server_notify_data((uint8_t*)json_str, strlen(json_str));
-        ESP_LOGI(TAG, "Send config result: %s", json_str);
-        free(json_str);
-    }
-    cJSON_Delete(root);
+    send_ble_response("net_config_response", success, data);
 }
 
 /**
@@ -200,18 +220,94 @@ static void handle_ble_net_config(cJSON *data_obj)
 }
 
 /**
- * @brief 处理BLE控制数据
+ * @brief 解析十六进制字符串为字节数组
+ * @param hex_str 十六进制字符串（无空格，如 "0C02XXXXXXXXXXXX01000000"）
+ * @param output 输出字节数组
+ * @param max_len 最大输出长度
+ * @return 实际解析的字节数，失败返回-1
+ */
+static int parse_hex_string(const char *hex_str, uint8_t *output, size_t max_len)
+{
+    if (!hex_str || !output || max_len == 0) {
+        return -1;
+    }
+    
+    size_t hex_len = strlen(hex_str);
+    if (hex_len == 0 || hex_len % 2 != 0) {
+        ESP_LOGW(TAG, "Hex string length invalid: %zu", hex_len);
+        return -1;
+    }
+    
+    size_t byte_count = hex_len / 2;
+    if (byte_count > max_len) {
+        ESP_LOGW(TAG, "Hex string too long: %zu > %zu", byte_count, max_len);
+        return -1;
+    }
+    
+    // 每2个字符解析为一个字节
+    for (size_t i = 0; i < byte_count; i++) {
+        char hex_byte[3] = {hex_str[i * 2], hex_str[i * 2 + 1], '\0'};
+        char *endptr;
+        unsigned long value = strtoul(hex_byte, &endptr, 16);
+        
+        if (*endptr != '\0' || value > 0xFF) {
+            ESP_LOGW(TAG, "Invalid hex byte at position %zu: %s", i, hex_byte);
+            return -1;
+        }
+        
+        output[i] = (uint8_t)value;
+    }
+    
+    return (int)byte_count;
+}
+
+/**
+ * @brief 处理BLE清除配置指令（发送原始数据到串口）
  * @param data_obj JSON中的data对象
  */
-static void handle_ble_control_data(cJSON *data_obj)
+static void handle_ble_clr_config(cJSON *data_obj)
 {
     if (!data_obj || !cJSON_IsObject(data_obj)) {
-        ESP_LOGW(TAG, "BLE control data invalid");
+        ESP_LOGW(TAG, "clr_config data invalid");
+        cJSON *error_data = cJSON_CreateObject();
+        cJSON_AddStringToObject(error_data, "message", "data invalid");
+        send_ble_response("clr_config_response", false, error_data);
         return;
     }
     
-    // TODO: 这里添加具体的业务处理逻辑
-    // 例如：解析mccil十六进制字符串并发送到串口
+    // 提取raw字段
+    cJSON *raw_item = cJSON_GetObjectItem(data_obj, "raw");
+    if (!raw_item || !cJSON_IsString(raw_item)) {
+        ESP_LOGW(TAG, "clr_config missing or invalid raw field");
+        cJSON *error_data = cJSON_CreateObject();
+        cJSON_AddStringToObject(error_data, "message", "missing or invalid raw field");
+        send_ble_response("clr_config_response", false, error_data);
+        return;
+    }
+    
+    const char *hex_str = raw_item->valuestring;
+    ESP_LOGI(TAG, "clr_config received, raw: %s", hex_str);
+    
+    // 解析十六进制字符串
+    uint8_t data_buffer[256];  // 最大256字节
+    int data_len = parse_hex_string(hex_str, data_buffer, sizeof(data_buffer));
+    
+    if (data_len < 0) {
+        ESP_LOGE(TAG, "Failed to parse hex string");
+        cJSON *error_data = cJSON_CreateObject();
+        cJSON_AddStringToObject(error_data, "message", "failed to parse hex string");
+        send_ble_response("clr_config_response", false, error_data);
+        return;
+    }
+    
+    // 通过串口发送数据
+    uart_send_data(data_buffer, (size_t)data_len);
+    ESP_LOGI(TAG, "clr_config sent to UART, length: %d", data_len);
+    
+    // 发送成功反馈到BLE
+    cJSON *success_data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(success_data, "length", data_len);
+    send_ble_response("clr_config_response", true, success_data);
 }
 
 /* ========== 属性处理函数 ========== */
@@ -508,8 +604,8 @@ void mqtt_ble_data_parser_cb(const g_msg_queue_t* msg)
         
         if (strcmp(cmd, "net_config") == 0) {
             handle_ble_net_config(data_obj);
-        } else if (strcmp(cmd, "uart_control") == 0) {
-            handle_ble_control_data(data_obj);
+        }else if (strcmp(cmd, "clr_config") == 0) {
+            handle_ble_clr_config(data_obj);
         } else {
             ESP_LOGW(TAG, "Unknown BLE command: %s", cmd);
         }

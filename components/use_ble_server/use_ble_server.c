@@ -31,20 +31,30 @@ static const char *TAG = "BLE";
 static bool connected = false;
 static uint16_t conn_handle = 0;
 
-/* 数据存储 */
-static uint8_t received_data[256];
+/* 数据存储 - 增大缓冲区以支持更大的数据包 */
+static uint8_t received_data[512];  // 增大到512字节，匹配MAX_MSG_SIZE
 static uint16_t received_len = 0;
+
+/* 特征句柄（用于通知） */
+static uint16_t notify_chr_val_handle = 0;
 
 static void start_advertising(void);
 
-/* UUID 定义 */
+/* UUID 定义 - 16位UUID转换为128位UUID（蓝牙标准基础UUID） */
+/* 服务UUID: A002 -> 0000A002-0000-1000-8000-00805F9B34FB */
 static const ble_uuid128_t gatt_svr_svc_uuid =
-    BLE_UUID128_INIT(0x2d, 0x71, 0xa2, 0x59, 0xb4, 0x58, 0xc8, 0x12,
-                     0x99, 0x99, 0x43, 0x95, 0x12, 0x2f, 0x46, 0x59);
+    BLE_UUID128_INIT(0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80,
+                     0x00, 0x10, 0x00, 0x00, 0x02, 0xA0, 0x00, 0x00);
 
-static const ble_uuid128_t gatt_svr_chr_uuid =
-    BLE_UUID128_INIT(0x00, 0x00, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11,
-                     0x22, 0x22, 0x22, 0x22, 0x33, 0x33, 0x33, 0x33);
+/* 写特征UUID: C303 -> 0000C303-0000-1000-8000-00805F9B34FB */
+static const ble_uuid128_t gatt_svr_write_chr_uuid =
+    BLE_UUID128_INIT(0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80,
+                     0x00, 0x10, 0x00, 0x00, 0x03, 0xC3, 0x00, 0x00);
+
+/* 通知特征UUID: C305 -> 0000C305-0000-1000-8000-00805F9B34FB */
+static const ble_uuid128_t gatt_svr_notify_chr_uuid =
+    BLE_UUID128_INIT(0xFB, 0x34, 0x9B, 0x5F, 0x80, 0x00, 0x00, 0x80,
+                     0x00, 0x10, 0x00, 0x00, 0x05, 0xC5, 0x00, 0x00);
 
 /* 打印接收到的数据 */
 static void print_received_data(void)
@@ -63,47 +73,71 @@ static void print_received_data(void)
     }
 }
 
-/* GATT 服务器读写回调 */
-static int gatt_svr_chr_access(uint16_t conn_handle, uint16_t attr_handle,
-                              struct ble_gatt_access_ctxt *ctxt, void *arg)
+/* 写特征回调函数 */
+static int gatt_svr_write_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                     struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_CHR:
-        ESP_LOGI(TAG, "APP 读取特征值");
-        if (received_len > 0) {
-            os_mbuf_append(ctxt->om, received_data, received_len);
-        } else {
-            const char *msg = "ESP32-C5 Ready";
-            os_mbuf_append(ctxt->om, msg, strlen(msg));
-        }
-        return 0;
-
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
-        ESP_LOGI(TAG, "APP 写入特征值");
+        ESP_LOGI(TAG, "Write characteristic received");
         received_len = OS_MBUF_PKTLEN(ctxt->om);
+        
+        // 获取当前MTU信息用于调试
+        uint16_t current_mtu = ble_att_mtu(conn_handle);
+        uint16_t max_write_len = (current_mtu > 3) ? (current_mtu - 3) : 20;
+        ESP_LOGI(TAG, "Current MTU: %d, max write len: %d, received: %d", 
+                 current_mtu, max_write_len, received_len);
+        
         if (received_len > sizeof(received_data)) {
+            ESP_LOGW(TAG, "Received data too large: %d > %zu, truncating", 
+                     received_len, sizeof(received_data));
             received_len = sizeof(received_data);
         }
         
         ble_hs_mbuf_to_flat(ctxt->om, received_data, sizeof(received_data), &received_len);
         
+        // 添加调试日志：打印接收到的原始数据（完整数据，最多256字节）
+        if (received_len > 0) {
+            int log_len = (received_len < 256) ? received_len : 256;
+            ESP_LOGI(TAG, "BLE write data received, length: %d, data: %.*s", 
+                     received_len, log_len, received_data);
+        }
+        
         // 准备统一消息结构
         g_msg_queue_t msg = {
             .source = MSG_SOURCE_BLE,
-            .type = MSG_TYPE_CONTROL,  // 默认为控制指令，后续由统一处理函数判断
-            .data_len = (received_len < MAX_MSG_SIZE) ? received_len : MAX_MSG_SIZE
+            .type = MSG_TYPE_CONTROL,
+            .data_len = (received_len < MAX_MSG_SIZE - 1) ? received_len : (MAX_MSG_SIZE - 1)
         };
         memcpy(msg.data, received_data, msg.data_len);
+        msg.data[msg.data_len] = '\0';  // 添加null结尾符，确保JSON解析有效
         
         // 发送到统一消息队列
         BaseType_t xStatus = xQueueSend(g_msg_queue, &msg, 0);
         if (xStatus == pdPASS) {
-            ESP_LOGI(TAG, "BLE消息已入队 (%d字节)", msg.data_len);
+            ESP_LOGI(TAG, "BLE message queued (%d bytes)", msg.data_len);
         } else {
-            ESP_LOGW(TAG, "消息队列已满");
-            print_received_data();  // 作为备用处理
+            ESP_LOGW(TAG, "Message queue full");
         }
         
+        return 0;
+
+    default:
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+/* 通知特征回调函数 */
+static int gatt_svr_notify_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                       struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+        // 通知特征只用于发送数据，不支持读取
+        return 0;
+
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+        // 可能是CCCD写入（启用/禁用通知）
         return 0;
 
     default:
@@ -116,13 +150,24 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &gatt_svr_svc_uuid.u,
-        .characteristics = (struct ble_gatt_chr_def[]) { {
-            .uuid = &gatt_svr_chr_uuid.u,
-            .access_cb = gatt_svr_chr_access,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
-        }, {
-            0, /* No more characteristics in this service */
-        } },
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {
+                /* 写特征 (C303) - 用于接收数据 */
+                .uuid = &gatt_svr_write_chr_uuid.u,
+                .access_cb = gatt_svr_write_chr_access,
+                .flags = BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                /* 通知特征 (C305) - 用于发送数据 */
+                .uuid = &gatt_svr_notify_chr_uuid.u,
+                .access_cb = gatt_svr_notify_chr_access,
+                .flags = BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &notify_chr_val_handle,  // 保存特征值句柄，用于通知
+            },
+            {
+                0, /* No more characteristics in this service */
+            }
+        },
     }, {
         0, /* No more services */
     },
@@ -265,10 +310,27 @@ esp_err_t initialize_ble_server(void)
         return ESP_FAIL;
     }
 
-    /* 设置设备名称 */
-    rc = ble_svc_gap_device_name_set(DEVICE_NAME);
+    /* 动态生成设备名称：WYDL + MAC地址后6位（最后3个字节） */
+    char device_name[16];  // "WYDL" + "XXXXXX" (6 hex chars) + '\0' = 11 chars
+    if (device_info && device_info->device_mac[0] != 0) {
+        // 使用MAC地址后6位（最后3个字节，6个十六进制字符）
+        // 例如：MAC为 12:34:56:78:9A:BC，设备名为 WYDL789ABC
+        snprintf(device_name, sizeof(device_name), "WYDL%02X%02X%02X",
+                 device_info->device_mac[3], 
+                 device_info->device_mac[4], 
+                 device_info->device_mac[5]);
+    } else {
+        // 如果MAC地址未读取，使用默认名称
+        strncpy(device_name, "WYDL000000", sizeof(device_name) - 1);
+        device_name[sizeof(device_name) - 1] = '\0';
+        ESP_LOGW(TAG, "MAC not read, use default name");
+    }
+    
+    rc = ble_svc_gap_device_name_set(device_name);
     if (rc != 0) {
-        ESP_LOGW(TAG, "设置设备名称失败: %d", rc);
+        ESP_LOGW(TAG, "Set device name failed: %d", rc);
+    } else {
+        ESP_LOGI(TAG, "BLE device name: %s", device_name);
     }
 
     /* 启动 NimBLE 主机任务 */
@@ -290,21 +352,37 @@ uint16_t use_ble_server_get_conn_handle(void)
 
 esp_err_t use_ble_server_notify_data(const uint8_t* data, uint16_t len)
 {
-    if (!connected) {
-        ESP_LOGW(TAG, "设备未连接，无法发送数据");
+    if (!connected || conn_handle == 0) {
+        ESP_LOGW(TAG, "Device not connected, cannot send data");
         return ESP_FAIL;
     }
 
-    /* 更新本地数据 */
-    if (len <= sizeof(received_data)) {
-        memcpy(received_data, data, len);
-        received_len = len;
-        ESP_LOGI(TAG, "数据已更新到特征值: %d 字节", len);
-        return ESP_OK;
-    } else {
-        ESP_LOGW(TAG, "数据长度超限: %d > %d", len, sizeof(received_data));
-        return ESP_ERR_INVALID_SIZE;
+    if (notify_chr_val_handle == 0) {
+        ESP_LOGW(TAG, "Notify characteristic handle not set");
+        return ESP_ERR_INVALID_STATE;
     }
+
+    if (len == 0 || data == NULL) {
+        ESP_LOGW(TAG, "Invalid data parameters");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* 创建mbuf并发送通知 */
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
+    if (om == NULL) {
+        ESP_LOGE(TAG, "Failed to create mbuf");
+        return ESP_ERR_NO_MEM;
+    }
+
+    int rc = ble_gatts_notify_custom(conn_handle, notify_chr_val_handle, om);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Notify failed: %d", rc);
+        os_mbuf_free_chain(om);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Notify sent, length: %d", len);
+    return ESP_OK;
 }
 
 esp_err_t use_ble_server_update_device_status(const char* status, int32_t value)

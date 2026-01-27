@@ -12,7 +12,7 @@
     "--query-driver=d:\\espidf\\tools_55\\tools\\riscv32-esp-elf\\esp-14.2.0_20241119\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe",
     "--compile-commands-dir=d:\\soft\\vscode\\git\\ESP_WIFI_C5\\station\\build"
   ],
-  "idf.portWin": "COM6",
+  "idf.portWin": "COM3",
   "idf.flashType": "UART",
   "files.associations": {
     "common.h": "c",
